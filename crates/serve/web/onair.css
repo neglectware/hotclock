@@ -1,0 +1,510 @@
+/* The On Air page (app.js, routes.onair): the console. Everything lives under `.oa` so no rule here reaches another page.
+   The look is the Processing rack's: the --hw1/--hw2 faceplate gradient, the #3a4457 border, engraved uppercase labels,
+   lamps like `.rlight`. Not used here, on purpose: the classes `.seg` and `.pstat` (style.css has them for the rack). */
+.oa [hidden] { display: none !important; }
+/* The page's scrollbar on a desktop: its room is kept even while the page fits. Without it a height that follows the
+   width (the old Processing unit's canvas was 0.6 of its width) flickers: the bar appears, the column gets 15 px narrower,
+   the canvas 5 px shorter, the page fits, the bar goes, and again, several times a second. And the On Air page ends
+   18 px under its last unit, not 60 px (the general bottom margin of `main`), so it scrolls only when a unit is cut off. */
+@media (min-width: 1024px) {
+  html:has(main > .oa) { scrollbar-gutter: stable; }
+  main:has(> .oa) { padding-bottom: 18px; }
+}
+.oa { --hw1: #252c3a; --hw2: #1a2029; --hwline: #3a4457; --key-h: 64px; }
+
+/* ---- the page header: title, station tabs, the box's monitor view ---- */
+.oa .oa-head { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 14px; }
+.oa .oa-head h1 { margin: 0 8px 0 0; }
+.oa .oa-head .tabs { margin: 0; }
+.oa .oa-head .spacer { flex: 1 1 auto; }
+.oa .monitor { display: inline-flex; align-items: center; gap: 8px; }
+.oa .seglab { font: 600 10px/1 var(--font); letter-spacing: .08em; text-transform: uppercase; color: var(--dim); }
+.oa .segc { display: inline-flex; border: 1px solid var(--line); border-radius: 6px; overflow: hidden; }
+.oa .segc button { border: 0; border-radius: 0; border-left: 1px solid var(--line); padding: 4px 10px; font-size: 12px; background: var(--panel2); }
+.oa .segc button:first-child { border-left: 0; }
+.oa .segc button.on { background: #3a2a0c; color: var(--amber); box-shadow: inset 0 -2px var(--amber); }
+.oa .tabs button .chip { margin-right: 0; }
+.oa .tabs button .chip.fixed { display: inline-block; min-width: 3.4em; text-align: center; }
+
+/* ---- a unit: a faceplate with a header strip ---- */
+.oa .unit { background: linear-gradient(180deg, var(--hw1), var(--hw2) 60%); border: 1px solid var(--hwline); border-radius: 10px; box-shadow: inset 0 1px 0 #ffffff14, 0 2px 6px #0005; min-width: 0; position: relative; }
+.oa .uhead { min-height: 40px; flex-wrap: wrap; display: flex; align-items: center; gap: 4px 10px; padding: 0 14px; border-bottom: 1px solid #0006; background: linear-gradient(#ffffff0a, transparent); border-radius: 10px 10px 0 0; }
+.oa .uhead .t { font: 700 12px/1 var(--font); letter-spacing: .06em; text-transform: uppercase; }
+.oa .uhead .r { margin-left: auto; display: flex; gap: 8px; align-items: center; }
+.oa .uhead button { padding: 3px 10px; font-size: 13px; min-height: 28px; }
+.oa .uhead a.help-q { margin-left: 0; }
+.oa .uhead .sum { font-size: 12px; color: var(--dim); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1 1 8em; }
+.oa .ubody { padding: 14px; }
+.oa .lampbar { display: flex; gap: 12px; }
+.oa .lampbar .rlight { font-size: 10px; }
+.oa .lampbar .rlight .rlt { display: inline; }
+.oa .offline { display: none; }
+.oa.off .offline { display: inline-block; }
+
+/* ---- the on-air unit ---- */
+.oa .onair { display: grid; grid-template-columns: 148px minmax(0, 1fr) 300px; gap: 18px; padding: 16px; align-items: stretch; }
+.oa .onair .art { width: 148px; height: 148px; border-radius: 6px; object-fit: cover; box-shadow: 0 2px 10px #0008; background: var(--panel2); }
+/* no art: the empty square keeps its cell (the `[hidden]` rule above would take it out, and the title and the clocks
+   would fall into the art's 148 px column: the unit grew by about 240 px for each item without art, and shrank again) */
+.oa .onair .art[hidden] { display: block !important; visibility: hidden; }
+.oa .onair .main { min-width: 0; }
+.oa .onair .ttl .tt { font-size: 26px; font-weight: 700; line-height: 1.15; overflow-wrap: anywhere; }
+.oa .onair .ttl .aa { font-size: 16px; color: var(--dim); margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.oa .clocks { display: flex; gap: 26px; align-items: flex-end; margin-top: 14px; flex-wrap: wrap; }
+/* the clocks are as wide as "59:59", or "9:59:59" for an item of an hour or more: 9:59 > 10:00 moves nothing beside them */
+.oa .clock .v { font: 600 40px/1 var(--mono); font-variant-numeric: tabular-nums; min-width: 5ch; }
+.oa .clocks.long .clock:not(.nxt) .v { min-width: 7ch; }
+.oa .clock .l { font: 600 10px/1 var(--font); letter-spacing: .1em; color: var(--dim); text-transform: uppercase; margin-top: 6px; min-height: 1em; }
+.oa .clock.left .v { color: var(--amber); }
+.oa .clock.nxt { min-width: 0; }
+.oa .clock.nxt .v { font: 700 15px/1.2 var(--font); letter-spacing: .06em; color: var(--amber); padding-bottom: 6px; min-width: 0; text-transform: uppercase; font-variant-numeric: tabular-nums; }
+.oa .oa-pbar { position: relative; height: 10px; border-radius: 3px; background: #0e1218; border: 1px solid var(--line); margin-top: 14px; overflow: hidden; }
+.oa .oa-pbar > i { position: absolute; inset: 0 auto 0 0; background: var(--amber); }
+.oa .oa-pbar > b { position: absolute; top: 0; bottom: 0; width: 2px; background: #fff; opacity: .8; }
+.oa .leds { display: grid; gap: 4px; margin-top: 10px; }
+.oa .lufs { display: flex; gap: 16px; font: 13px var(--mono); margin-top: 8px; color: var(--dim); flex-wrap: wrap; }
+.oa .lufs > span { min-width: 7.5ch; }
+/* the value: padded to 6 characters ("-120.0", app.js), right-aligned in the monospaced font; plain text, so the line is as tall
+   as before (an inline-block can make it a fraction taller with some fonts) */
+.oa .lufs .lv { white-space: pre; }
+.oa .lufs .unitlab { margin-left: auto; min-width: 0; }
+.oa .nextbox { border-left: 1px solid #0006; box-shadow: -1px 0 0 #ffffff0d; padding-left: 18px; display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.oa .nextbox .glab { font: 600 10px/1 var(--font); letter-spacing: .1em; color: var(--dim); text-transform: uppercase; }
+.oa .nx { display: grid; grid-template-columns: 52px minmax(0, 1fr); gap: 10px; align-items: center; }
+.oa .nx img, .oa .nx .bdgbox { width: 52px; height: 52px; border-radius: 4px; object-fit: cover; background: var(--panel2); }
+.oa .nx .bdgbox { display: grid; place-items: center; min-width: 0; padding: 0; }
+.oa .nx .tt { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.oa .nx .aa { color: var(--dim); font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.oa .nx .when { font: 12px var(--mono); color: var(--dim); }
+.oa .callout { margin-top: auto; padding: 8px 10px; border-radius: 6px; background: #0b0e13; border: 1px solid var(--line); font-size: 13px; }
+.oa .callout.wait { border-color: var(--amber); background: #221a0b; color: var(--amber); }
+
+/* ---- hardware keys ---- */
+.oa .key { position: relative; min-height: var(--key-h); min-width: 92px; padding: 8px 14px; display: inline-flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px;
+  background: linear-gradient(180deg, #2c3446, #1d232e 70%); border: 1px solid var(--hwline); border-radius: 8px; box-shadow: inset 0 1px 0 #ffffff1a, inset 0 -3px 0 #0005, 0 2px 4px #0006;
+  font: 700 13px/1.1 var(--font); letter-spacing: .06em; text-transform: uppercase; color: var(--text);
+  -webkit-touch-callout: none; -webkit-user-select: none; user-select: none; touch-action: manipulation; -webkit-tap-highlight-color: transparent; }
+.oa .key:hover { border-color: #6a7690; }
+.oa .key:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
+.oa .key small { font: 500 10px/1 var(--font); letter-spacing: .04em; text-transform: none; color: var(--dim); white-space: nowrap; }
+.oa .key .lamp { position: absolute; top: 7px; right: 8px; width: 8px; height: 8px; border-radius: 50%; background: #2a3240; border: 1px solid #3c4658; }
+.oa .key.lit-amber { border-color: var(--amber); color: var(--amber); background: linear-gradient(180deg, #3a2c10, #241b0a 70%); }
+.oa .key.lit-amber .lamp { background: var(--amber); border-color: var(--amber); box-shadow: 0 0 8px var(--amber); }
+.oa .key.go { border-color: #2f7d5a; }
+.oa .key.go .kl { color: var(--green); }
+.oa .key.hero { min-width: 132px; font-size: 16px; }
+.oa .key:disabled { opacity: 1; cursor: default; color: #6b7588; border-color: #2c3442; background: linear-gradient(180deg, #232a36, #1a1f29 70%); box-shadow: inset 0 -3px 0 #0004; }
+.oa .key:disabled:hover { border-color: #2c3442; }
+.oa .key.danger { color: #ff8a8a; border-color: #6b2f35; background: linear-gradient(180deg, #33222a, #221519 70%); }
+.oa .key.danger small { color: #c98a8f; }
+.oa .key.go.danger { color: var(--text); }
+/* a guarded key: a striped collar; the first press lifts the cover (armed for 5 s), the second fires */
+.oa .key.guard { box-shadow: inset 0 1px 0 #ffffff14, 0 0 0 3px #1a1f28, 0 0 0 4px #6b2f35, 0 2px 4px #0006; }
+.oa .key.guard::before { content: ""; position: absolute; left: 0; right: 0; top: -4px; height: 6px; border-radius: 8px 8px 0 0;
+  background: repeating-linear-gradient(135deg, #ff5c5c 0 6px, #1a1f28 6px 12px); opacity: .75; pointer-events: none; }
+.oa .key.guard.armed { border-color: var(--red); background: linear-gradient(180deg, #5a2128, #3a1419 70%); color: #fff; animation: oa-arm 0.6s ease-in-out infinite alternate; }
+.oa .key.guard.armed::before { opacity: 0; }
+.oa .key.guard.armed small { color: #ffd0d3; }
+@keyframes oa-arm { from { box-shadow: 0 0 0 3px #1a1f28, 0 0 0 4px var(--red), 0 0 0 #0000; } to { box-shadow: 0 0 0 3px #1a1f28, 0 0 0 4px var(--red), 0 0 14px #ff5c5c99; } }
+@media (prefers-reduced-motion: reduce) { .oa .key.guard.armed { animation: none; } }
+/* a hold key: a red fill runs along the bottom while it is held */
+.oa .fill { position: absolute; left: 0; bottom: 0; height: 4px; width: 0; background: var(--red); border-radius: 0 0 0 8px; pointer-events: none; }
+.oa .holding { border-color: var(--red); }
+.oa .keygroup { display: flex; flex-direction: column; gap: 6px; }
+.oa .keygroup > .glab { font: 600 10px/1 var(--font); letter-spacing: .1em; text-transform: uppercase; color: var(--dim); padding-left: 2px; }
+.oa .keygroup.hard > .glab { color: #c98a8f; }
+.oa .keygroup > .keys { display: flex; gap: 8px; }
+.oa #transport { margin-top: 14px; }
+.oa .tstrip { display: flex; align-items: flex-end; gap: 22px; padding: 14px 16px 16px; flex-wrap: wrap; }
+.oa .tstrip .vsep { align-self: stretch; width: 1px; background: #0007; box-shadow: 1px 0 0 #ffffff0d; }
+.oa .tstrip .push { flex: 1 1 0; }
+
+/* ---- two columns: program (and processing C) on the left, queue and alerts on the right; the split is a Layout choice ---- */
+.oa .cols { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 14px; margin-top: 14px; align-items: start; }
+.oa .col { display: grid; gap: 14px; min-width: 0; }
+@media (min-width: 1024px) {
+  .oa[data-split="60"] .cols { grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); }
+  .oa[data-split="40"] .cols { grid-template-columns: minmax(0, 2fr) minmax(0, 3fr); }
+}
+
+/* ---- the program unit ---- */
+.oa .pst { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; }
+.oa .pst .pn { font-size: 18px; font-weight: 700; overflow-wrap: anywhere; }
+.oa .pfacts { font-size: 13px; color: var(--dim); margin-top: 6px; }
+.oa .pfacts b { color: var(--text); font-weight: 600; }
+.oa .pdim { font-size: 13px; }
+.oa .rundown { margin-top: 12px; border-top: 1px solid var(--line); }
+.oa .rd { display: grid; grid-template-columns: 26px 64px minmax(0, 1fr) 78px 64px 104px; gap: 10px; align-items: center; padding: 7px 4px; border-bottom: 1px solid var(--line); font-size: 14px; }
+.oa .rd .n { font: 12px var(--mono); color: var(--dim); text-align: right; }
+.oa .rd .nm { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.oa .rd .nm small { display: block; color: var(--dim); font-size: 12px; overflow: hidden; text-overflow: ellipsis; }
+.oa .rd .at, .oa .rd .in { font: 13px var(--mono); text-align: right; font-variant-numeric: tabular-nums; }
+.oa .rd .ptm { display: none; }
+.oa .rd .act { display: flex; justify-content: flex-end; gap: 4px; }
+.oa .rd .act button { padding: 3px 8px; font-size: 12px; min-height: 28px; }
+.oa .rd .act .chip { margin: 0; }
+.oa .rd.done { opacity: .55; }
+.oa .rd.cur { background: #221a0b; box-shadow: inset 3px 0 var(--amber); }
+.oa .rd.head { font: 600 10px/1 var(--font); letter-spacing: .08em; text-transform: uppercase; color: var(--dim); padding: 8px 4px; }
+.oa .rd .bdg { min-width: 0; width: 100%; }
+.oa .btm.amber { color: var(--amber); }
+.oa .btm.red { color: var(--red); }
+.oa .expcount { display: inline-block; min-width: 5ch; text-align: right; font-variant-numeric: tabular-nums; }
+.oa .settingsline { display: flex; flex-wrap: wrap; gap: 6px 14px; align-items: center; font-size: 13px; color: var(--dim); margin-top: 12px; padding-top: 10px; border-top: 1px solid #0006; box-shadow: 0 -1px 0 #ffffff0d; }
+.oa .settingsline b { color: var(--text); font-weight: 600; }
+.oa .settingsline .lnk { background: none; border: 0; padding: 0; min-height: 0; color: var(--blue); cursor: pointer; font-size: 13px; }
+.oa .settingsline .lnk b { color: inherit; }
+.oa .settingsline > a:last-child { margin-left: auto; }
+.oa .xpop { margin-top: 10px; padding: 10px 12px; border: 1px solid var(--hwline); border-radius: 8px; background: #0e1218; width: 100%; }
+.oa .xpop[hidden] { display: none; }
+.oa .noprog-line { color: var(--dim); }
+
+/* a narrow program unit (a 40 / 60 split, a narrow window): At and In move under the name, as on a phone */
+.oa #progbox { container: prog / inline-size; }
+@container prog (max-width: 560px) {
+  .oa .rd { grid-template-columns: 22px 52px minmax(0, 1fr) auto; gap: 8px; }
+  .oa .rd .at, .oa .rd .in, .oa .rd.head .x { display: none; }
+  .oa .rd .ptm { display: inline; font-family: var(--mono); }
+}
+@container prog (max-width: 420px) { .oa #progbox .uhead .wide { display: none; } }
+/* a compact program unit: the current block only; the whole rundown on demand */
+.oa .f-rundown { background: none; border: 0; padding: 6px 0 0; min-height: 0; color: var(--blue); cursor: pointer; font-size: 13px; }
+.oa[data-prog=compact] .progview .rundown { margin-top: 8px; }
+
+/* ---- the queue unit ---- */
+.oa .qsearch { width: 100%; margin-bottom: 6px; }
+.oa .qres .qr { grid-template-columns: 40px minmax(0, 1fr) auto auto; }
+.oa .qr { display: grid; grid-template-columns: 40px minmax(0, 1fr) 62px 30px; gap: 10px; align-items: center; padding: 6px 0; border-bottom: 1px solid var(--line); }
+.oa .qr.drag { opacity: .4; }
+.oa .qr.dropbefore { box-shadow: 0 -2px var(--amber); }
+.oa .qr img, .oa .qr .thumb { width: 40px; height: 40px; border-radius: 4px; object-fit: cover; background: var(--panel2); }
+.oa .qr .tt { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.oa .qr .aa { color: var(--dim); font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.oa .qr .aa .chip { font-size: 11px; margin-left: 4px; margin-right: 0; padding: 0 6px; }
+.oa .qr .aa .tr { color: var(--amber); }
+.oa .qr .tm { font: 13px var(--mono); color: var(--dim); text-align: right; font-variant-numeric: tabular-nums; }
+.oa .qr .more { width: 30px; height: 30px; min-height: 30px; padding: 0; color: var(--dim); border-color: transparent; background: none; }
+.oa .qr .more[aria-expanded=true] { color: var(--amber); }
+.oa .qr.blk { background: #161b24; }
+.oa .qr.blk .bdg { min-width: 0; width: 40px; padding: 2px 0; font-size: 10px; }
+.oa .qmenu { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 8px; align-items: center; padding: 6px 0 4px 50px; }
+.oa .qmenu[hidden] { display: none; }
+.oa .qmenu select { max-width: 100%; }
+/* a compact queue: N rows (the Layout control), the rest scrolls inside; a row is 53 px (40 px art, 12 px padding, 1 px line) */
+.oa[data-queue=compact] .qscroll { max-height: calc(var(--qn, 6) * 53px); overflow-y: auto; overscroll-behavior: contain; }
+.oa .qcount { padding: 0; }
+.oa .qempty { color: var(--dim); padding: 8px 0; }
+
+/* ---- the Change program sheet (a native dialog) and the menus ---- */
+.oa dialog.sheet { padding: 0; width: min(680px, calc(100vw - 24px)); max-height: calc(100vh - 24px); overflow: auto; color: var(--text); border: 1px solid var(--hwline); margin: auto; }
+.oa dialog.sheet::backdrop { background: rgba(0, 0, 0, .6); }
+.oa .sheet .ubody { display: grid; gap: 14px; }
+.oa .sheet .fl { font: 600 10px/1 var(--font); letter-spacing: .08em; text-transform: uppercase; color: var(--dim); margin-bottom: 6px; }
+.oa .plpick { display: grid; gap: 6px; }
+.oa .plpick label { display: grid; grid-template-columns: 22px minmax(0, 1fr) auto; gap: 10px; align-items: center; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; background: #0e1218; cursor: pointer; min-height: 44px; }
+.oa .plpick label.on { border-color: var(--amber); background: #221a0b; }
+.oa .plpick small { color: var(--dim); }
+.oa .sheet .segc { display: flex; width: 100%; }
+.oa .sheet .segc button { flex: 1; padding: 8px 6px; font-size: 13px; }
+.oa .sheet .segc button small { display: block; color: var(--dim); font-size: 11px; }
+.oa .dry { border: 1px solid var(--line); border-radius: 8px; background: #0b0e13; padding: 10px 12px; font-size: 14px; }
+.oa .dry table { margin-top: 6px; font-size: 13px; }
+.oa .sheet .foot { display: flex; gap: 10px; justify-content: flex-end; padding: 12px 14px; border-top: 1px solid #0006; flex-wrap: wrap; }
+.oa .menu { position: absolute; z-index: 40; width: 300px; max-width: calc(100vw - 24px); background: var(--panel); border: 1px solid var(--hwline); border-radius: 8px; box-shadow: 0 10px 30px #000a; padding: 6px; }
+.oa .menu[hidden] { display: none; }
+.oa .menu button, .oa .menu a.mi { display: block; width: 100%; text-align: left; border: 0; background: none; padding: 8px 10px; border-radius: 6px; position: relative; overflow: hidden; color: var(--text); min-height: 44px; }
+.oa .menu button small, .oa .menu a.mi small { display: block; color: var(--dim); font-size: 12px; }
+.oa .menu button:hover, .oa .menu a.mi:hover { background: var(--panel2); }
+.oa .menu .dz { color: #ff8a8a; -webkit-touch-callout: none; -webkit-user-select: none; user-select: none; touch-action: manipulation; }
+.oa .menu .dz .fill { border-radius: 0; }
+.oa .menu hr { border: 0; border-top: 1px solid var(--line); margin: 4px 0; }
+.oa .menu [hidden] { display: none; }
+
+/* ---- master control: on a desktop the page is one screen ----
+   The page fills the window and no more: the head, the on-air unit and the transport keep their height, and the two
+   columns share what is left. Neither column sets that height (`contain: size`): the queue's rows and the program's
+   body scroll inside their units, Alerts and the Processing unit keep their own height under them. A window too short
+   for this (under 600 px, or the columns under 280 px) scrolls as before. Phones and tablets (under 1024 px) are not
+   changed. */
+@media (min-width: 1024px) and (min-height: 600px) {
+  .oa { display: flex; flex-direction: column; min-height: calc(100vh - 36px); }
+  .oa > * { flex: none; }
+  .oa > .cols { flex: 1 1 0; min-height: 240px; grid-template-rows: minmax(0, 1fr); align-items: stretch; }
+  /* a column is a flex column: the program and the queue units take the room that is left (Full), or their own height up
+     to it (Compact); processing C and Alerts keep their height under them */
+  .oa .col { contain: size; display: flex; flex-direction: column; }
+  .oa .col > * { flex: none; }
+  .oa #progbox, .oa #queuebox { display: flex; flex-direction: column; flex: 1 1 0; min-height: 120px; }
+  .oa .progbody, .oa #queuebox > .ubody { flex: 1 1 0; min-height: 0; display: flex; flex-direction: column; }
+  .oa .progbody { overflow-y: auto; }
+  .oa .progbody > .settingsline { margin-top: auto; }
+  .oa .progbody > .progview { margin-bottom: 12px; }
+  .oa .qscroll { flex: 1 1 0; min-height: 0; overflow-y: auto; overscroll-behavior: contain; margin-right: -14px; padding-right: 14px; }
+  .oa #alertsbox > .ubody { max-height: 30vh; overflow-y: auto; }
+  .oa[data-prog=compact]:not(.rd-open) #progbox { flex: 0 1 auto; min-height: 0; }
+  .oa[data-prog=compact]:not(.rd-open) .progbody { flex: 0 1 auto; }
+  .oa[data-queue=compact] #queuebox { flex: 0 1 auto; }
+  .oa[data-queue=compact] #queuebox > .ubody, .oa[data-queue=compact] .qscroll { flex: 0 1 auto; }
+  .oa[data-queue=compact] .qscroll { max-height: calc(var(--qn, 6) * 53px); }
+}
+/* a short desktop window (1280 x 800, a laptop): the on-air unit and the keys a little smaller, two entries in Coming up */
+@media (min-width: 1024px) and (min-height: 600px) and (max-height: 860px) {
+  .oa { --key-h: 52px; }
+  .oa .oa-head { margin-bottom: 10px; }
+  .oa #transport, .oa .cols { margin-top: 10px; }
+  .oa .onair { grid-template-columns: 112px minmax(0, 1fr) 280px; padding: 12px 16px; gap: 16px; }
+  .oa .onair .art { width: 112px; height: 112px; }
+  .oa .onair .ttl .tt { font-size: 22px; }
+  .oa .clocks { margin-top: 8px; }
+  .oa .clock .v { font-size: 32px; }
+  .oa .oa-pbar { margin-top: 10px; }
+  .oa .nextbox { gap: 8px; }
+  .oa .nextbox .nx:nth-of-type(n+3) { display: none; }
+  .oa .tstrip { padding: 10px 16px 12px; }
+}
+/* a narrow desktop (1024 to 1279 px: the menu takes 200 px): the cover, the clocks and the keys a little smaller, so the keys
+   stay on one line and the clocks on one row, and the page still fits the window */
+@media (min-width: 1024px) and (max-width: 1279px) {
+  .oa .onair { grid-template-columns: 104px minmax(0, 1fr) 230px; gap: 14px; padding: 12px 14px; }
+  .oa .onair .art { width: 104px; height: 104px; }
+  .oa .onair .ttl .tt { font-size: 22px; }
+  .oa .clocks { gap: 8px 18px; }
+  .oa .clock .v { font-size: 32px; }
+  .oa .clock.nxt .v { font-size: 13px; }
+  .oa .lufs { gap: 10px; }
+  .oa .lufs > span { min-width: 6.5ch; }
+  .oa .tstrip { gap: 12px; }
+  .oa .key { min-width: 76px; padding: 8px 6px; letter-spacing: .03em; }
+  .oa .key.hero { min-width: 100px; font-size: 14px; }
+}
+/* a very short desktop window (600 to 759 px high): everything above the columns smaller again, one entry in Coming up,
+   thinner headers, so that every layout still fits */
+@media (min-width: 1024px) and (min-height: 600px) and (max-height: 759px) {
+  .oa { --key-h: 44px; }
+  .oa .oa-head { margin-bottom: 6px; }
+  .oa .oa-head h1 { font-size: 20px; }
+  .oa #transport, .oa .cols, .oa .pm-bridge { margin-top: 8px; }
+  .oa .cols, .oa .col { gap: 8px; }
+  .oa > .cols { min-height: 170px; }
+  .oa .uhead { min-height: 32px; }
+  .oa .uhead button { min-height: 24px; padding: 2px 10px; }
+  .oa .ubody { padding: 10px 14px; }
+  .oa .onair { grid-template-columns: 76px minmax(0, 1fr) 240px; padding: 8px 14px; gap: 14px; }
+  .oa .onair .art { width: 76px; height: 76px; }
+  .oa .onair .ttl .tt { font-size: 18px; }
+  .oa .onair .ttl .aa { font-size: 13px; }
+  .oa .clocks { margin-top: 4px; }
+  .oa .clock .v { font-size: 26px; }
+  .oa .clock .l { margin-top: 3px; }
+  .oa .clock.nxt .v { font-size: 12px; padding-bottom: 3px; }
+  .oa .oa-pbar { margin-top: 6px; height: 8px; }
+  .oa .leds { margin-top: 6px; }
+  .oa .lufs { margin-top: 4px; font-size: 12px; }
+  .oa .nextbox { gap: 6px; }
+  .oa .nextbox .nx:nth-of-type(n+2) { display: none; }
+  .oa .nx { grid-template-columns: 40px minmax(0, 1fr); }
+  .oa .nx img, .oa .nx .bdgbox { width: 40px; height: 40px; }
+  .oa .callout { padding: 4px 8px; font-size: 12px; }
+  .oa .tstrip { padding: 8px 14px 10px; }
+  .oa .keygroup { gap: 4px; }
+  .oa .key { padding: 4px 8px; gap: 2px; }
+  .oa #progbox, .oa #queuebox { min-height: 60px; }
+  .oa .pm-row { min-height: 40px; padding: 4px 14px; }
+  .oa .pm-bc .pm-bv { display: none; }
+  .oa .pm-g { gap: 4px; }
+  .oa .pm-c { padding: 6px 14px 8px; gap: 6px 18px; }
+  .oa .pm-bcs { height: 24px; }
+  .oa .pm-grs { gap: 2px 8px; }
+  .oa #alertsbox > .ubody { max-height: 20vh; }
+}
+
+/* ---- the phone's bottom transport dock ---- */
+.oa .dock { display: none; }
+@media (max-width: 1023px) {
+  .oa .monitor { width: 100%; flex-wrap: wrap; }
+  .oa .monitor .seglab { width: 100%; }
+  .oa .monitor .segc { flex: 1; }
+  .oa .monitor .segc button { flex: 1; min-height: 44px; }
+  .oa .uhead button, .oa .rd .act button, .oa .qmenu button, .oa .menu button { min-height: 44px; }
+  .oa .qr { grid-template-columns: 40px minmax(0, 1fr) 56px 44px; }
+  .oa .qr .more { width: 44px; height: 44px; min-height: 44px; }
+  .oa .qres .qr { grid-template-columns: 40px minmax(0, 1fr) auto auto; }
+  .oa .oa-head .spacer { display: none; }
+  .oa .onair { grid-template-columns: 96px minmax(0, 1fr); gap: 12px; padding: 12px; }
+  .oa .onair .art { width: 96px; height: 96px; }
+  .oa .onair .ttl .tt { font-size: 20px; }
+  .oa .onair .ttl .aa { font-size: 14px; white-space: normal; }
+  .oa .onair .main { display: contents; }
+  .oa .onair .ttl { grid-column: 2; min-width: 0; }
+  .oa .onair .clockrow { grid-column: 1 / -1; min-width: 0; }
+  .oa .clocks { gap: 8px 18px; margin-top: 4px; }
+  .oa .clock .v { font-size: 32px; }
+  .oa .nextbox { grid-column: 1 / -1; border-left: 0; box-shadow: none; padding-left: 0; border-top: 1px solid #0006; padding-top: 12px; }
+  .oa .nextbox .nx:nth-of-type(n+3) { display: none; }
+  /* one column: every unit is a flex item of the page, in this order (the Layout control puts the queue or the program
+     first): on-air unit, keys, queue, program, processing, alerts */
+  .oa { display: flex; flex-direction: column; gap: 14px; }
+  .oa .oa-head { margin-bottom: 0; }
+  .oa #transport, .oa .pm-bridge { margin-top: 0; }
+  .oa .cols, .oa .col { display: contents; }
+  .oa > #onairunit { order: 1; } .oa > #transport { order: 2; }
+  .oa #queuebox { order: 3; } .oa #progbox { order: 4; }
+  .oa[data-phone=program] #queuebox { order: 4; } .oa[data-phone=program] #progbox { order: 3; }
+  .oa .pm-bridge, .oa .pm-unit { order: 5; } .oa #alertsbox { order: 6; }
+  .oa .tstrip { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 8px; padding: 12px; }
+  .oa .k-cont, .oa .k-next, .oa .k-fade { grid-column: span 2; }
+  .oa .k-hold, .oa .k-asst { grid-column: span 3; }
+  .oa .k-cut, .oa .k-stop { grid-column: span 3; margin-top: 10px; }
+  .oa .uhead .wide { display: none; }
+  .oa .tstrip .keygroup, .oa .tstrip .keys { display: contents; }
+  .oa .tstrip .glab, .oa .tstrip .vsep, .oa .tstrip .push { display: none; }
+  .oa .tstrip .key { min-width: 0; padding: 8px 4px; }
+  .oa .lampbar .rlight:not(.on) { display: none; }
+  .oa .rd { grid-template-columns: 22px 52px minmax(0, 1fr) auto; gap: 8px; }
+  .oa .rd .at, .oa .rd .in { display: none; }
+  .oa .rd .ptm { display: inline; font-family: var(--mono); }
+  .oa .rd .nm small { white-space: normal; }
+  .oa .settingsline { gap: 0 14px; }
+  .oa .settingsline .lnk, .oa .settingsline a, .oa .settingsline > span { min-height: 44px; display: inline-flex; align-items: center; gap: .3em; }
+  .oa .rd.head .x { display: none; }
+  .oa .settingsline > a:last-child { margin-left: 0; }
+  .oa .dock { display: grid; grid-template-columns: 1.3fr 1fr 1fr 1fr; gap: 8px; position: fixed; left: 0; right: 0; bottom: 0; z-index: 25; padding: 8px 10px calc(8px + env(safe-area-inset-bottom));
+    background: #10141b; border-top: 1px solid var(--hwline); box-shadow: 0 -6px 20px #0008; }
+  .oa .dock[hidden] { display: none; }
+  .oa .dock .key { min-height: 52px; min-width: 0; padding: 6px 4px; }
+  .oa.docked { padding-bottom: 80px; }
+}
+
+/* ---- the Layout control (onairlayout.js): a button in the page head and its popover ---- */
+.oa .layoutctl { position: relative; display: inline-flex; }
+.oa .f-layout { padding: 4px 12px; font-size: 12px; }
+.oa .f-layout[aria-expanded=true] { border-color: var(--amber); color: var(--amber); }
+.oa .lpop { top: calc(100% + 6px); width: 380px; padding: 12px; display: grid; gap: 12px; }
+.oa .lpop .fl { font: 600 10px/1.3 var(--font); letter-spacing: .08em; text-transform: uppercase; color: var(--dim); margin-bottom: 6px; }
+.oa .lpop .fl small { letter-spacing: 0; text-transform: none; font-weight: 400; font-size: 11px; }
+.oa .lpop .segc { display: flex; width: 100%; }
+.oa .lpop .segc button { flex: 1 1 0; min-width: 0; padding: 6px 4px; min-height: 32px; font-size: 12px; display: block; text-align: center; border-radius: 0; }
+.oa .lpop .lfoot { display: flex; align-items: center; justify-content: space-between; border-top: 1px solid var(--line); padding-top: 10px; }
+.oa .lpop .lfoot button { width: auto; display: inline-block; padding: 6px 12px; min-height: 32px; border: 1px solid var(--line); }
+.oa .lpop .lfoot button:disabled { opacity: .5; }
+
+/* ---- the processing displays (onairlayout.js). The rack's own parts are reused: .rlight, .rbar, .rbar.bp, .rgain ---- */
+.oa .pm-l { font: 600 9px/1 var(--font); letter-spacing: .1em; text-transform: uppercase; color: var(--dim); white-space: nowrap; }
+/* every live number has the width of its widest value ("-24.0", "+12.0 dB", "target -24.0") in the monospaced font, right-aligned:
+   a sign, a second digit or "--" moves nothing beside it (onairlayout.js: sg, gr, tgt) */
+.oa .pm-n { display: inline-block; flex: none; box-sizing: content-box; width: 5ch; font-size: 12px; font-weight: 600; text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.oa .pm-n.db { width: 8ch; }
+.oa .pm-lw { display: inline-grid; }
+.oa .pm-lw > * { grid-area: 1 / 1; }
+.oa .pm-lws { visibility: hidden; }
+.oa .pm-gr { flex: none; width: 56px; height: 8px; }
+.oa .pm-gain { flex: 1 1 0; height: 8px; }
+.oa .pm-bands { display: inline-flex; gap: 3px; height: 16px; }
+.oa .pm-vb { position: relative; flex: none; width: 8px; height: 100%; background: #0e1218; border: 1px solid var(--line); border-radius: 2px; overflow: hidden; }
+.oa .pm-vb > i { position: absolute; left: 0; right: 0; top: 0; height: 0; background: var(--amber); }
+.oa .pm-lamp { font-size: 10px; }
+.oa .pm-lamp .rlt { display: inline !important; }
+.oa .pm-lufs { display: inline-block; flex: none; width: 12ch; font-size: 12px; color: var(--dim); white-space: pre; font-variant-numeric: tabular-nums; }
+.oa .pm-more { font-size: 13px; white-space: nowrap; flex: none; }
+
+/* A: the meter bridge, a row under both columns */
+.oa .pm-bridge { margin-top: 14px; container-type: inline-size; }
+.oa .pm-row { display: flex; align-items: center; gap: 10px; padding: 8px 14px; min-height: 50px; overflow: hidden; }
+.oa .pm-g { flex: none; display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.oa .pm-g > span { display: flex; align-items: center; gap: 6px; height: 16px; }
+.oa .pm-sep { flex: none; align-self: stretch; width: 1px; background: #0007; box-shadow: 1px 0 0 #ffffff0d; }
+.oa .pm-name > span { gap: 4px; }
+.oa .pm-name .help-q { margin-left: 2px; }
+.oa .pm-preset { font-size: 13px; font-weight: 600; color: var(--text); max-width: 14ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.oa .pm-byp { margin: 0; font-size: 11px; }
+.oa .pm-row > .pm-more { margin-left: auto; }
+@container (max-width: 1150px) { .oa .pm-bridge .pm-gr { width: 36px; } .oa .pm-bridge .pm-row { gap: 9px; } .oa .pm-bridge .pm-ld .pm-lufs { display: none; } }
+@container (max-width: 1060px) { .oa .pm-bridge .pm-name, .oa .pm-bridge .pm-name + .pm-sep { display: none; } }
+
+/* B: a line in the on-air unit, under the levels */
+.oa .onair .clockrow { container-type: inline-size; }
+.oa .pm-inline { display: flex; align-items: center; gap: 12px; margin-top: 8px; height: 18px; font-size: 12px; white-space: nowrap; overflow: hidden; }
+.oa .pm-i { flex: none; display: inline-flex; align-items: center; gap: 5px; }
+.oa .pm-inline .pm-gr { width: 40px; }
+.oa .pm-inline .pm-bands { height: 14px; }
+.oa .pm-inline .pm-vb { width: 6px; }
+.oa .pm-inline .pm-ld { margin-left: auto; }
+.oa .pm-tag { font: 700 9px/1 var(--font); letter-spacing: .1em; text-transform: uppercase; color: var(--dim); border: 1px solid var(--line); border-radius: 3px; padding: 3px 5px; }
+.oa .pm-tag:hover { color: var(--blue); border-color: var(--blue); }
+.oa .pm-tag.byp { color: var(--red); border-color: var(--red); }
+@container (max-width: 720px) { .oa .pm-inline .pm-gr { display: none; } .oa .pm-inline { gap: 10px; } }
+/* the numbers' fixed widths take room: a narrow line (1280 x 800) packs closer; on a 1024 desktop the band bars go (a phone wraps) */
+@container (max-width: 640px) { .oa .pm-inline { gap: 6px; } .oa .pm-inline .pm-i { gap: 3px; } .oa .pm-inline .pm-n { font-size: 11px; } }
+@media (min-width: 1024px) { @container (max-width: 480px) { .oa .pm-inline .pm-mb { display: none; } } }
+
+/* C: a small rack unit at the bottom of the left column */
+.oa .pm-unit { container-type: inline-size; }
+.oa .pm-unit .uhead .chip { margin: 0; }
+.oa .pm-c { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 10px 18px; padding: 10px 14px 12px; }
+.oa .pm-cell { min-width: 0; display: flex; flex-direction: column; gap: 6px; }
+.oa .pm-ch { display: flex; align-items: center; gap: 10px; min-width: 0; height: 16px; }
+.oa .pm-ch .pm-lights { flex: 1 1 0; min-width: 0; }   /* the space between the name and the number, whatever light is lit */
+.oa .pm-ch .pm-lights + * { margin-left: auto; }
+.oa .pm-ch .rlight:not(.on) { display: none; }
+.oa .pm-lights { height: auto; gap: 4px 10px; flex-wrap: wrap; overflow: visible; min-height: 11px; }
+.oa .pm-lights .rlight { font-size: 9px; }
+.oa .pm-lights .rlight .rlt { display: inline !important; }
+.oa .pm-c .rgain { height: 14px; gap: 8px; }
+.oa .pm-c .rgain .pm-lufs { flex: none; font-size: 11px; }
+.oa .pm-bcs { display: flex; gap: 6px; height: 46px; }
+.oa .pm-bc { flex: 1 1 0; min-width: 0; display: flex; flex-direction: column; align-items: center; gap: 2px; }
+.oa .pm-bc .pm-vb { flex: 1 1 0; width: 100%; max-width: 40px; height: auto; }
+.oa .pm-bn { font: 700 8px/1 var(--font); letter-spacing: .04em; color: var(--dim); white-space: nowrap; }
+.oa .pm-bv { display: block; width: 5ch; font-size: 10px; line-height: 1; text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.oa .pm-grs { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 5px 8px; align-items: center; align-content: center; }
+.oa .pm-grl { display: contents; }
+.oa .pm-grs .pm-gr { width: auto; }
+.oa .pm-ch .pm-lights { overflow: hidden; }
+.oa .pm-bn { max-width: 100%; overflow: hidden; }
+/* a narrow rack unit (a 40 / 60 split on a narrow window): tighter, and the loudness target left out */
+@container (max-width: 440px) {
+  .oa .pm-c { gap: 8px 12px; padding-left: 10px; padding-right: 10px; }
+  .oa .pm-ch { gap: 6px; }
+  .oa .pm-ld .pm-lufs { display: none; }
+  .oa .pm-bcs { gap: 3px; }
+  .oa .pm-bn { font-size: 7px; letter-spacing: 0; }
+}
+@media (min-width: 1024px) and (max-height: 860px) {
+  .oa .pm-bridge { margin-top: 10px; }
+  /* 2 px of slack for 1024 x 768: the row is its groups (38 px, fixed) and the padding, whatever the fonts */
+  .oa .pm-row { min-height: 0; padding-top: 7px; padding-bottom: 7px; }
+  .oa .pm-c { padding: 8px 14px 10px; gap: 8px 18px; }
+  .oa .pm-bcs { height: 30px; }
+  .oa .pm-grs { gap: 3px 8px; }
+}
+
+/* ---- phones and tablets: the displays wrap; the Add sheet fills a phone's screen ---- */
+.oa .addsheet .segc { display: flex; width: 100%; }
+.oa .addsheet .qres .qr { grid-template-columns: 40px minmax(0, 1fr) auto; }
+.oa .addsheet .qres .f-add { min-width: 72px; }
+.oa .addsheet .qempty { padding: 12px 0; }
+@media (max-width: 1023px) {
+  .oa .pm-row { flex-wrap: wrap; gap: 12px 16px; padding: 10px 12px; }
+  .oa .pm-sep { display: none; }
+  .oa .pm-row > .pm-more { min-height: 44px; display: inline-flex; align-items: center; }
+  .oa .pm-inline { flex-wrap: wrap; height: auto; row-gap: 8px; }
+  .oa .pm-inline .pm-ld { margin-left: 0; }
+  .oa .pm-tag { min-height: 44px; display: inline-flex; align-items: center; padding: 0 10px; }
+  .oa .pm-unit .pm-more { min-height: 44px; display: inline-flex; align-items: center; }
+  .oa .lpop { padding: 12px; }
+  .oa .lpop .segc button, .oa .lpop .lfoot button { min-height: 44px; }
+  .oa .f-layout { min-height: 44px; }
+  .oa .addsheet .qres .f-add, .oa .addsheet .segc button { min-height: 44px; }
+}
+@media (max-width: 599px) {
+  .oa .pm-c { grid-template-columns: minmax(0, 1fr); }
+  .oa dialog.addsheet { width: 100vw; max-width: 100vw; height: 100dvh; max-height: 100dvh; margin: 0; border-radius: 0; border: 0; }
+  .oa dialog.addsheet .uhead { border-radius: 0; position: sticky; top: 0; z-index: 1; background: var(--hw1); }
+}
+.oa .lpop .segc button { background: var(--panel2); border-left: 1px solid var(--line); }
+.oa .lpop .segc button:first-child { border-left: 0; }
+.oa .lpop .segc button.on { background: #3a2a0c; color: var(--amber); box-shadow: inset 0 -2px var(--amber); }
+/* a choice that does nothing at this width is not offered: the split on one column, the order on two */
+@media (min-width: 1024px) { .oa .lpop [data-group=phone] { display: none; } }
+@media (max-width: 1023px) { .oa .lpop [data-group=split] { display: none; } }
+@container (max-width: 900px) { .oa .pm-bridge .pm-gr { width: 24px; } .oa .pm-bridge .pm-row { gap: 8px; } .oa .pm-bridge .pm-row > .pm-more { display: none; } }

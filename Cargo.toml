@@ -1,0 +1,87 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/common",
+    "crates/gapless",
+    "crates/engine",
+    "crates/analysis",
+    "crates/library",
+    "crates/station",
+    "crates/serve",
+    "crates/stream",
+    "crates/dspmodel",
+    "crates/display",
+    "crates/hotclock",
+    "crates/fixtures",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "AGPL-3.0-only"
+publish = false
+
+[workspace.lints.clippy]
+# A style lint from newer toolchains; chunks_exact with a constant is clear and portable.
+chunks_exact_to_as_chunks = "allow"
+
+[workspace.dependencies]
+common = { path = "crates/common" }
+gapless = { path = "crates/gapless" }
+engine = { path = "crates/engine" }
+analysis = { path = "crates/analysis" }
+library = { path = "crates/library" }
+station = { path = "crates/station" }
+serve = { path = "crates/serve" }
+stream = { path = "crates/stream" }
+fixtures = { path = "crates/fixtures" }
+dspmodel = { path = "crates/dspmodel" }
+display = { path = "crates/display" }
+
+# Pinned third-party versions (exact).
+serde_yaml_ng = "=0.10.0"
+symphonia = { version = "=0.5.5", features = ["all"] }
+lofty = "=0.25.4"
+rtrb = "=0.4.0"
+alsa = "=0.12.1"
+clap = { version = "=4.6.7", features = ["derive"] }
+serde = { version = "=1.0.229", features = ["derive"] }
+serde_json = "=1.0.151"
+toml = "=1.1.6"
+toml_edit = "=0.25.15"
+serde_path_to_error = "=0.1.20"
+tracing = "=0.1.44"
+tracing-subscriber = { version = "=0.3.23", features = ["env-filter"] }
+thiserror = "=2.0.21"
+ctrlc = { version = "=3.5.2", features = ["termination"] }
+nix = { version = "=0.31.3", default-features = false, features = ["mman"] }
+libc = "=0.2.189"
+rustix = { version = "=1.1.5", features = ["process", "fs"] }
+thread-priority = "=3.1.1"
+ebur128 = "=0.1.10"
+zstd = "=0.13.3"
+rusqlite = { version = "=0.40.2", features = ["bundled"] }
+sha2 = "=0.10.9"
+notify = "=8.2.0"
+rustls = { version = "=0.23.35", default-features = false, features = ["ring", "std", "tls12"] }
+webpki-roots = "=1.0.9"
+rcgen = "=0.14.10"
+tiny-skia = { version = "=0.12.0", default-features = false, features = ["std", "simd"] }
+fontdue = "=0.9.4"
+drm = "=0.15.0"
+drm-ffi = "=0.9.1"
+jiff = "=0.2.38"
+image = { version = "=0.25.10", default-features = false, features = ["png", "jpeg", "webp"] }
+
+[profile.dev]
+opt-level = 1
+
+# Heavy numeric and codec dependencies are slow in an unoptimised build; tests decode and encode
+# hundreds of seconds of audio.
+[profile.dev.package."*"]
+opt-level = 3
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+debug = 1

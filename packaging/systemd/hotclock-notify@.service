@@ -1,0 +1,21 @@
+# The one-shot behind `OnFailure=` (architecture 12.1): when a unit it is named for enters the failed state it
+# sends `service_failed` through the channels and rules of the Notifications page, reading the same library.db and
+# /etc/hotclock/secrets.toml, so a library service that cannot start still reaches the operator. The instance is the
+# failed unit's name, verbatim: `hotclock-notify@hotclock-library.service`.
+[Unit]
+Description=Hotclock failure notice for %i
+Documentation=file:///usr/share/doc/hotclock/deploy.md
+
+[Service]
+Type=oneshot
+User=hotclock
+Group=hotclock
+# To read the failed unit's last log lines for the message.
+SupplementaryGroups=systemd-journal
+ExecStart=/usr/bin/hotclock notify --event service_failed --unit %i
+TimeoutStartSec=60
+StateDirectory=hotclock
+ProtectSystem=strict
+ReadWritePaths=/var/lib/hotclock
+PrivateTmp=yes
+NoNewPrivileges=yes

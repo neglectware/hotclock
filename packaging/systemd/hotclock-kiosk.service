@@ -1,0 +1,36 @@
+# The fallback of architecture 11.4 (M7), written but NOT installed as a unit and not enabled: `cage` (a
+# one-window Wayland compositor) running Chromium in kiosk mode on the library service's /display page, which
+# honors the box's view (single, split, rotate). It needs the packages `cage` and `chromium` (not installed on
+# the target box, which keeps no X, Wayland or browser), a nightly restart against the browser's memory growth, and it
+# replaces hotclock-display.service (both want tty1). To use it:
+#   apt install cage chromium
+#   cp /usr/share/hotclock/examples/hotclock-kiosk.service /etc/systemd/system/
+#   systemctl disable --now hotclock-display; systemctl enable --now hotclock-kiosk
+[Unit]
+Description=Hotclock status display (kiosk fallback)
+Conflicts=getty@tty1.service hotclock-display.service
+After=systemd-user-sessions.service hotclock-library.service
+After=getty@tty1.service
+StartLimitIntervalSec=0
+
+[Service]
+User=hotclock
+Group=hotclock
+SupplementaryGroups=video input render
+PAMName=login
+TTYPath=/dev/tty1
+TTYReset=yes
+TTYVHangup=yes
+TTYVTDisallocate=yes
+StandardInput=tty-fail
+Environment=XDG_RUNTIME_DIR=/run/user/%U
+ExecStart=/usr/bin/cage -s -- /usr/bin/chromium --kiosk --noerrdialogs --disable-infobars --no-first-run --ozone-platform=wayland --user-data-dir=/var/lib/hotclock-kiosk/chromium http://localhost:8300/display
+Restart=always
+RestartSec=3
+# against the browser's memory growth (11.4)
+RuntimeMaxSec=1d
+StateDirectory=hotclock-kiosk
+NoNewPrivileges=yes
+
+[Install]
+WantedBy=multi-user.target

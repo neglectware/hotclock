@@ -1,0 +1,9 @@
+node_modules/
+build/
+dist/
+com.neglectware.hotclock.sdPlugin/bin/
+com.neglectware.hotclock.sdPlugin/logs/
+logs/
+
+# The repository ignores core dumps (a file or folder named `core`); the plugin has a source folder of that name.
+!/src/core/

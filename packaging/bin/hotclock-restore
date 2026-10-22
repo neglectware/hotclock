@@ -1,0 +1,39 @@
+#!/bin/sh
+# Put the newest nightly snapshots back in place of library.db and every station's state.db (architecture
+# 5.5). Stops the units it finds running, restores, starts the same units again. `--date YYYYMMDD` picks
+# another day; `--dry-run` only lists what would be restored.
+#   sudo hotclock-restore [--date YYYYMMDD] [--dry-run]
+set -eu
+[ "$(id -u)" -eq 0 ] || { echo "hotclock-restore: run it as root (sudo)" >&2; exit 1; }
+args=""
+dry=0
+while [ $# -gt 0 ]; do
+    case "$1" in
+    --date) args="$args --date $2"; shift 2 ;;
+    --dry-run) dry=1; shift ;;
+    *) echo "usage: hotclock-restore [--date YYYYMMDD] [--dry-run]" >&2; exit 2 ;;
+    esac
+done
+if [ "$dry" -eq 1 ]; then
+    # shellcheck disable=SC2086
+    exec /usr/bin/hotclock restore $args
+fi
+# Active, and also activating: a unit whose database is damaged is often between two of `Restart=always`'s
+# attempts (`activating (auto-restart)`), and left alone it would start again in the middle of the restore.
+running=$(systemctl list-units --plain --no-legend --all 'hotclock-station@*.service' 'hotclock-library.service' |
+    awk '$3 == "active" || $3 == "activating" || $3 == "reloading" {print $1}')
+for u in $running; do
+    echo "stopping $u"
+    systemctl stop "$u"
+done
+status=0
+# shellcheck disable=SC2086
+/usr/bin/hotclock restore --yes $args || status=$?
+# The library first, then the stations.
+for u in $running; do
+    case "$u" in hotclock-library.service) echo "starting $u"; systemctl start "$u" ;; esac
+done
+for u in $running; do
+    case "$u" in hotclock-station@*) echo "starting $u"; systemctl start "$u" ;; esac
+done
+exit $status

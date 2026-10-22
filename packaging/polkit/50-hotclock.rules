@@ -1,0 +1,20 @@
+// The library service (user `hotclock`) may manage exactly the units the web UI manages. Nothing else: no other unit,
+// no other user, and no enable/disable (polkit cannot limit those to one unit; stations start at boot through
+// packaging/systemd/hotclock-stations-generator instead).
+//   restart  the library, the status display, and the station instances (Settings page, Stations page)
+//   start, stop  the station instances only (create, rename, delete and the Start/Stop buttons of the Stations page)
+// Extension of 2026-10-07 to the 2026-10-06 grant (restart only): the owner, "I approve all necessary access to the box."
+polkit.addRule(function (action, subject) {
+    if (action.id == "org.freedesktop.systemd1.manage-units" && subject.user == "hotclock") {
+        var unit = action.lookup("unit");
+        var verb = action.lookup("verb");
+        var station = /^hotclock-station@[a-z0-9_-]+\.service$/.test(unit);
+        if (verb == "restart" &&
+            (unit == "hotclock-library.service" || unit == "hotclock-display.service" || station)) {
+            return polkit.Result.YES;
+        }
+        if ((verb == "start" || verb == "stop") && station) {
+            return polkit.Result.YES;
+        }
+    }
+});

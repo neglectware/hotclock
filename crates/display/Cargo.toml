@@ -1,0 +1,28 @@
+[package]
+name = "display"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+description = "The native status display (architecture 11): layout, rendering, the station clients and the KMS output"
+
+[lints]
+workspace = true
+
+[dependencies]
+common.workspace = true
+serve.workspace = true
+dspmodel.workspace = true
+serde_json.workspace = true
+tracing.workspace = true
+libc.workspace = true
+tiny-skia.workspace = true
+fontdue.workspace = true
+image.workspace = true
+ctrlc.workspace = true
+
+[target.'cfg(target_os = "linux")'.dependencies]
+drm.workspace = true
+drm-ffi.workspace = true
+
+[dev-dependencies]
+image.workspace = true

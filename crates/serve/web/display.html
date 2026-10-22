@@ -1,0 +1,153 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{product}} status</title>
+<link rel="icon" href="/static/favicon.svg">
+<link rel="stylesheet" href="/static/style.css">
+<style>
+  html, body { overflow: hidden; }
+  /* The full layout of architecture 11.2 (1280 x 720 and up): every zone is a fraction of the screen, in the same
+     rectangles as the native display, every length scaled by s = min(width / 1920, height / 1080). */
+  #d { --s: min(calc(100vw / 1920), calc(100vh / 1080)); display: grid; height: 100vh; width: 100vw; gap: 0; padding: 0;
+       grid-template-columns: repeat(100, 1fr); grid-template-rows: 5.5fr 46.5fr 28fr 20fr; font-size: calc(var(--s) * 28); }
+  #d > section { background: var(--bg); border: 0 solid var(--line); border-width: 0 1px 1px 0; padding: calc(var(--s) * 12); min-height: 0; min-width: 0; overflow: hidden; }
+  #hd { grid-column: 1 / 101; grid-row: 1; display: flex; align-items: center; gap: calc(var(--s) * 18); font-size: calc(var(--s) * 34); font-weight: 700; background: var(--panel) !important; padding: 0 calc(var(--s) * 16) !important; }
+  #hd.crit { background: #5a161b !important; }
+  #hd .clock { margin-left: auto; font-family: var(--mono); font-size: calc(var(--s) * 34); }
+  #hd .prod { color: var(--dim); font-size: calc(var(--s) * 24); font-weight: 400; }
+  #hd .pillstate { font-size: calc(var(--s) * 24); padding: calc(var(--s) * 4) calc(var(--s) * 14); }
+  #hd .ind { font-size: calc(var(--s) * 24); padding: calc(var(--s) * 4) calc(var(--s) * 12); border-radius: calc(var(--s) * 8); color: #0b0e13; background: var(--green); white-space: nowrap; }
+  #hd .ind.amber { background: var(--amber); } #hd .ind.red { background: var(--red); } #hd .ind:empty { display: none; }
+  #now { grid-column: 1 / 47; grid-row: 2; display: flex; gap: calc(var(--s) * 24); position: relative; }
+  #now img, #now .noart { height: calc(100% - var(--s) * 20); aspect-ratio: 1; border-radius: calc(var(--s) * 8); background: var(--panel2); object-fit: cover; flex: none; }
+  #now .txt { min-width: 0; display: flex; flex-direction: column; flex: 1; }
+  #now .title { font-size: calc(var(--s) * 44); font-weight: 700; line-height: 1.15; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; }
+  #now .artist { font-size: calc(var(--s) * 36); line-height: 1.2; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  #now .album { font-size: calc(var(--s) * 28); color: var(--dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  #now .chips { font-size: calc(var(--s) * 22); margin: calc(var(--s) * 4) 0; }
+  #now .chips .chip { font-size: calc(var(--s) * 22); padding: 0 calc(var(--s) * 10); }
+  #now .times { display: flex; gap: calc(var(--s) * 12); align-items: baseline; flex-wrap: wrap; }
+  #now .big { font-size: calc(var(--s) * 88); line-height: 1.1; }
+  #now .times .el { font-size: calc(var(--s) * 48); color: var(--dim); }
+  #now .lbl { font-size: calc(var(--s) * 22); }
+  #now .segue { font-size: calc(var(--s) * 36); font-family: var(--mono); font-weight: 700; line-height: 1.2; }
+  #now .bar { position: absolute; left: 0; right: 0; bottom: 0; height: calc(var(--s) * 14); border-radius: 0; }
+  .amber { color: var(--amber); } .red { color: var(--red); }
+  #q { grid-column: 47 / 101; grid-row: 2; }
+  #q h3, #ar h3, #al h3, #mt h3 { margin: 0 0 .6vh; font-size: calc(var(--s) * 22); }
+  .qr { display: flex; gap: calc(var(--s) * 14); align-items: center; padding: calc(var(--s) * 3) 0; white-space: nowrap; font-size: calc(var(--s) * 28); }
+  .qr .thumb { width: calc(var(--s) * 52); height: calc(var(--s) * 52); }
+  .qr .nm { flex: 1; overflow: hidden; text-overflow: ellipsis; }
+  .qr .tm { font-family: var(--mono); color: var(--dim); }
+  .qr .bd { font-size: calc(var(--s) * 22); font-weight: 700; padding: 0 calc(var(--s) * 8); border-radius: calc(var(--s) * 6); background: var(--panel2); color: var(--dim); }
+  .qr .bd.blk { color: var(--amber); }
+  #mt { grid-column: 1 / 25; grid-row: 3; display: flex; flex-direction: column; gap: calc(var(--s) * 6); }
+  #mt canvas { width: 100%; height: calc(var(--s) * 96); flex: none; }
+  .nums { display: grid; grid-template-columns: auto auto auto auto; gap: 0 calc(var(--s) * 10); font-family: var(--mono); font-size: calc(var(--s) * 36); align-content: start; }
+  .nums span:nth-child(odd) { color: var(--dim); }
+  .nums span.lcv.s0 { color: var(--dim); } .nums span.lcv.s1 { color: var(--blue); } .nums span.lcv.s2 { color: var(--green); }
+  .nums span.lcv.s3, .nums span.lcv.s4 { color: var(--amber); }
+  #tgt { font-size: calc(var(--s) * 24); color: var(--dim); margin-top: calc(var(--s) * 4); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  #stg { grid-column: 25 / 55; grid-row: 3; padding: 0 !important; }
+  #stg canvas, #sp canvas { width: 100%; height: 100%; display: block; }
+  #sp { grid-column: 55 / 101; grid-row: 3; padding: 0 !important; }
+  #ar { grid-column: 1 / 63; grid-row: 4; } #al { grid-column: 63 / 101; grid-row: 4; }
+  .ar-row { display: flex; gap: calc(var(--s) * 14); white-space: nowrap; overflow: hidden; font-size: calc(var(--s) * 26); line-height: 1.28; }
+  .ar-row .t { font-family: var(--mono); color: var(--dim); }
+  .ar-row .n { flex: 1; overflow: hidden; text-overflow: ellipsis; }
+  .ar-row .bd { font-size: calc(var(--s) * 22); font-weight: 700; padding: 0 calc(var(--s) * 8); border-radius: calc(var(--s) * 6); background: var(--panel2); color: var(--dim); }
+  .alm { padding: 0; font-size: calc(var(--s) * 26); line-height: 1.28; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; } .alm.critical { color: var(--red); } .alm.warning { color: var(--amber); }
+  .offline #hd { background: #5a161b !important; }
+  /* The processing view (11.2c): one canvas the size of the screen, drawn by procview.js. */
+  #pv { display: none; position: fixed; inset: 0; width: 100vw; height: 100vh; background: #0b0e13; }
+  body.pvmode #d { display: none; } body.pvmode #pv { display: block; }
+
+  /* The compact layout (architecture 11.2b), for anything under 720 px high: the 1024 x 600 single view of the
+     7-inch panel in its own pixel rectangles, with no text under 31 px (the legibility rule of 11.2 at 170 ppi).
+     --k scales the layout to the viewport, so 1024 x 600 is exact and an 800 x 480 panel gets 0.8 of it
+     (a 25 px minimum, above the 24 and 19 px its rule asks). This page is the kiosk fallback of the native
+     display (M7), which draws the same layout. */
+  @media (max-height: 719px) {
+    #d { --k: min(calc(100vw / 1024), calc(100vh / 600)); font-size: calc(var(--k) * 31); gap: 0; padding: 0;
+         width: calc(var(--k) * 1024); height: calc(var(--k) * 600); margin: 0 auto;
+         grid-template-columns: 1fr; grid-template-rows: calc(var(--k) * 44) calc(var(--k) * 280) calc(var(--k) * 76) calc(var(--k) * 96) calc(var(--k) * 104); }
+    #hd, #now, #q, #mt, #al { grid-column: 1; }
+    #hd { grid-row: 1; } #now { grid-row: 2; } #q { grid-row: 3; } #mt { grid-row: 4; } #al { grid-row: 5; }
+    #d > section { border-radius: 0; border-width: 0 0 1px 0; padding: 0 calc(var(--k) * 12); }
+    #sp, #stg, #ar, #hd .prod, #now .album, #now .lbl, #now .el, #now .chips, #q h3, #al h3, #mt h3, #tgt, .qr .bd { display: none; }
+    #hd { font-size: calc(var(--k) * 31); gap: calc(var(--k) * 16); }
+    #hd .clock, #hd .pillstate, #hd .ind { font-size: calc(var(--k) * 31); }
+    #hd .pillstate { padding: 0 calc(var(--k) * 12); } #hd .ind { padding: 0 calc(var(--k) * 12); border-radius: calc(var(--k) * 10); }
+    #now { gap: calc(var(--k) * 20); align-items: center; }
+    #now img, #now .noart { width: calc(var(--k) * 200); height: calc(var(--k) * 200); aspect-ratio: auto; border-radius: calc(var(--k) * 6); }
+    #now .txt { gap: 0; height: calc(var(--k) * 256); justify-content: center; }
+    #now .title { font-size: calc(var(--k) * 44); line-height: 1.18; display: block; white-space: nowrap; text-overflow: ellipsis; }
+    #now .artist { font-size: calc(var(--k) * 31); line-height: 1.22; }
+    #now .big { font-size: calc(var(--k) * 88); line-height: 1.1; }
+    #now .segue { font-size: calc(var(--k) * 31); line-height: 1.22; }
+    #now .bar { height: calc(var(--k) * 8); }
+    #q { display: flex; flex-direction: column; justify-content: center; }
+    .qr { height: calc(var(--k) * 38); padding: 0; gap: calc(var(--k) * 12); font-size: calc(var(--k) * 31); }
+    .qr .thumb { width: calc(var(--k) * 36); height: calc(var(--k) * 36); }
+    #mt { flex-direction: row; gap: calc(var(--k) * 24); align-items: center; }
+    #mt > div:first-child { width: calc(var(--k) * 460); height: calc(var(--k) * 72); flex: none; }
+    #mt canvas { height: 100%; }
+    .nums { font-size: calc(var(--k) * 31); grid-template-columns: none; grid-auto-flow: column; justify-content: start; gap: 0 calc(var(--k) * 14); }
+    .nums .ms { display: none; }
+    #al { display: flex; flex-direction: column; justify-content: center; }
+    .alm, #alrows > .dim { font-size: calc(var(--k) * 31); line-height: calc(var(--k) * 44); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; padding: 0; }
+  }
+  /* One half of the `split` view (11.2b): 511 px wide, below the shared top bar (the box's page draws the bar), in
+     its own rectangles: header 44, now playing 220, next 44, meters 68, alarms 184. */
+  body.half #d { --k: min(calc(100vw / 511), calc(100vh / 560)); font-size: calc(var(--k) * 31); width: calc(var(--k) * 511); height: calc(var(--k) * 560);
+       margin: 0 auto; grid-template-columns: 1fr; grid-template-rows: calc(var(--k) * 44) calc(var(--k) * 220) calc(var(--k) * 44) calc(var(--k) * 68) calc(var(--k) * 184); }
+  body.half #hd, body.half #now, body.half #q, body.half #mt, body.half #al { grid-column: 1; }
+  body.half #hd { grid-row: 1; } body.half #now { grid-row: 2; } body.half #q { grid-row: 3; } body.half #mt { grid-row: 4; } body.half #al { grid-row: 5; }
+  body.half #d > section { padding: 0 calc(var(--k) * 10); border-radius: 0; border-width: 0 0 1px 0; }
+  body.half #sp, body.half #stg, body.half #ar, body.half #hd .prod, body.half #hd .clock, body.half #hd .ind, body.half #now .album, body.half #now .lbl, body.half #now .el, body.half #now .chips, body.half #q h3, body.half #al h3, body.half #mt h3, body.half #tgt, body.half .qr .bd, body.half .qr .thumb, body.half .nums .iv { display: none; }
+  body.half #hd { justify-content: space-between; } body.half #hd .pillstate { order: 2; }
+  body.half #now { display: grid; grid-template-columns: calc(var(--k) * 96) 1fr; grid-template-rows: calc(var(--k) * 114) auto; column-gap: calc(var(--k) * 12); align-content: start; padding-top: calc(var(--k) * 8); }
+  body.half #now img, body.half #now .noart { width: calc(var(--k) * 96); height: calc(var(--k) * 96); aspect-ratio: auto; grid-row: 1; grid-column: 1; }
+  body.half #now .txt { display: contents; }
+  body.half #now .ta { grid-row: 1; grid-column: 2; min-width: 0; }
+  body.half #now .title { font-size: calc(var(--k) * 31); line-height: 1.2; -webkit-line-clamp: 2; display: -webkit-box; font-weight: 700; }
+  body.half #now .artist { font-size: calc(var(--k) * 31); }
+  body.half #now .ds { grid-row: 2; grid-column: 1 / 3; display: flex; align-items: baseline; gap: calc(var(--k) * 14); margin-top: calc(var(--k) * 10); }
+  body.half #now .big { font-size: calc(var(--k) * 56); line-height: 1.1; }
+  body.half #now .segue { font-size: calc(var(--k) * 31); }
+  body.half #now .bar { height: calc(var(--k) * 6); }
+  body.half #q { display: flex; flex-direction: column; justify-content: center; }
+  body.half .qr { height: calc(var(--k) * 44); font-size: calc(var(--k) * 31); }
+  body.half #mt { flex-direction: row; align-items: center; gap: calc(var(--k) * 16); }
+  body.half #mt > div:first-child { width: calc(var(--k) * 232); height: calc(var(--k) * 52); flex: none; }
+  body.half #mt canvas { height: 100%; }
+  body.half .nums { font-size: calc(var(--k) * 31); grid-template-columns: none; grid-auto-flow: column; justify-content: start; }
+  body.half .nums .ms { display: none; }
+  body.half #al { padding-top: calc(var(--k) * 6) !important; }
+  body.half .alm, body.half #alrows > .dim { font-size: calc(var(--k) * 31); line-height: 1.22; white-space: normal; overflow: hidden; max-height: calc(var(--k) * 76); display: block; }
+</style>
+</head>
+<body data-api="{{base}}">
+<canvas id="pv"></canvas>
+<div id="d">
+  <section id="hd"><span id="stname">-</span><span id="stpill" class="pillstate">-</span><span class="prod" id="prod">{{product}}</span><span class="ind" id="other"></span><span class="clock" id="clk">--:--:--</span></section>
+  <section id="now"><div class="noart" id="art"></div><div class="txt">
+    <div class="ta"><div class="title" id="title">Nothing on air</div><div class="artist" id="artist"></div><div class="album" id="album"></div><div class="chips" id="chips"></div></div>
+    <div class="ds"><div class="times"><span class="big el" id="elapsed">0:00</span><span class="dim lbl">elapsed</span><span class="big" id="remain">0:00</span><span class="dim lbl">left</span></div><div class="segue" id="segue"></div></div>
+    <div class="bar"><i id="prog"></i></div></div></section>
+  <section id="q"><h3>NEXT</h3><div id="qrows"></div></section>
+  <section id="mt"><div><canvas id="mcv" width="640" height="220"></canvas></div><div><div class="nums" id="nums"></div><div id="tgt"></div></div></section>
+  <section id="stg"><canvas id="stcv" width="600" height="300"></canvas></section>
+  <section id="sp"><canvas id="scv" width="720" height="240"></canvas></section>
+  <section id="ar"><h3>AS RUN</h3><div id="arrows"></div></section>
+  <section id="al"><h3>ALARMS</h3><div id="alrows"></div></section>
+</div>
+<script src="/static/common.js"></script>
+<script src="/static/ballistics.js"></script>
+<script src="/static/curve.js"></script>
+<script src="/static/procview.js"></script>
+<script src="/static/display.js"></script>
+</body>
+</html>

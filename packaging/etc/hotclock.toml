@@ -1,0 +1,42 @@
+# Hotclock, global configuration (architecture 5.1). Every key has a default; this file only says the ones a
+# box may want to change. A file that is wrong stops the service and the log names the file and the key.
+
+# Where library.db, the media store, the inbox, the stations' state and the nightly snapshots live.
+data_dir = "/var/lib/hotclock"
+stations_dir = "/etc/hotclock/stations"
+run_dir = "/run/hotclock"
+
+# The time zone of the schedule and of the 02:30 snapshots (an IANA name).
+time_zone = "America/New_York"
+
+# The SMTP password of the notifications page lives here, mode 0600, and never in a database. It is under
+# /var/lib/hotclock, which the library service may write and the backup includes (the restore test needs it).
+secrets_file = "/var/lib/hotclock/secrets.toml"
+
+# Extra names this box answers to in the Host header (a CNAME, a tailnet alias). The box's own host name,
+# localhost and IP addresses are always allowed.
+# allowed_hosts = ["radiobox.example.ts.net"]
+
+[library]
+listen = "0.0.0.0:8300"
+
+# [brand]
+# display_name = "Studio Radio"
+
+# The status display on the box's own monitor (architecture 11, hotclock-display.service). Every key has a
+# default (the 7-inch 1024 x 600 panel); a different screen is a change here, not a redesign.
+# [display]
+# mode = "1024x600@60"        # set explicitly through KMS; the panel's EDID is never trusted for the resolution
+# diagonal_in = 7             # the screen's diagonal: the pixel density and so the minimum text size follow
+# view_distance_cm = 70       # raise it until the text reads from the seat (7b)
+# default_view = "single"     # single, split, rotate or processing, until the library service says otherwise
+# bypassed_stages = "show"    # full layout: show or hide bypassed stage columns
+# processing_view = "both"    # full layout: spectrum, curve or both
+# spectrum_source = "post"    # full layout: pre, post or both
+# curve_range_db = 12         # how far down the gain curve hangs (up to 18)
+# connector = "HDMI-A-1"      # the connector to use; the first connected one when unset
+# rotate_pin_on_alert = true  # in rotate, a critical alert pins the view to its station until it clears
+# rotate_processing = false   # in rotate, also show each station's processing view
+# proc_range_db = 18          # processing view: how far down the gain-reduction scale goes (6 to 30)
+# mini_processing = "auto"   # a small processing strip in single and split on a compact screen: off, auto or on
+# proc_spectrum = false       # processing view: the spectrum under the bars, where the screen has room

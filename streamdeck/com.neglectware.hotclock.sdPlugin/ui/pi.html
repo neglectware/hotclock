@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Hotclock</title>
+  <link rel="stylesheet" href="pi.css" />
+</head>
+<body>
+  <div id="app">
+    <section id="box">
+      <h2>Box</h2>
+      <div class="row">
+        <label for="g-host">Box address</label>
+        <input id="g-host" type="text" placeholder="hotclock.local" spellcheck="false" autocomplete="off" />
+      </div>
+      <div class="row" id="row-test">
+        <label></label>
+        <div class="inline"><button id="btn-test" type="button">Test connection</button><span id="test-status" class="status"></span></div>
+      </div>
+      <details id="box-advanced">
+        <summary>More</summary>
+        <div class="row">
+          <label for="g-libport">Library port</label>
+          <input id="g-libport" type="number" min="1" max="65535" placeholder="8300" />
+        </div>
+        <div class="row">
+          <label for="k-host">This key only</label>
+          <input id="k-host" type="text" placeholder="same box as above" spellcheck="false" autocomplete="off" />
+        </div>
+      </details>
+    </section>
+    <section id="station-section">
+      <h2>Station</h2>
+      <div class="row">
+        <label for="k-station">Station</label>
+        <select id="k-station"><option value="">Loading...</option></select>
+        <button id="btn-refresh" type="button" title="Read the stations and playlists from the box again">Refresh</button>
+      </div>
+      <div class="row" id="row-port">
+        <label for="k-port">Station port</label>
+        <input id="k-port" type="number" min="1" max="65535" placeholder="8301" />
+      </div>
+      <div id="station-error" class="error" hidden></div>
+    </section>
+    <section id="action-section">
+      <h2 id="action-title">Key</h2>
+      <div id="fields"></div>
+      <div id="action-error" class="error" hidden></div>
+    </section>
+    <section id="face-section">
+      <h2>Key face</h2>
+      <div class="row">
+        <label for="f-label">Label</label>
+        <input id="f-label" type="text" placeholder="the key's own text" spellcheck="false" autocomplete="off" />
+      </div>
+      <div class="row">
+        <label for="f-color">Label color</label>
+        <div class="inline"><input id="f-color" type="color" value="#f4f5f7" /><button id="f-color-clear" type="button">Default</button></div>
+      </div>
+      <div class="row">
+        <label for="f-img">Image</label>
+        <div class="inline"><input id="f-img" type="file" accept="image/png,image/jpeg,image/gif,image/webp,image/svg+xml" /><button id="f-img-clear" type="button">Remove</button></div>
+      </div>
+      <div class="row">
+        <label for="f-img2">Image when lit</label>
+        <div class="inline"><input id="f-img2" type="file" accept="image/png,image/jpeg,image/gif,image/webp,image/svg+xml" /><button id="f-img2-clear" type="button">Remove</button></div>
+      </div>
+      <div class="row">
+        <label></label>
+        <div class="inline"><input id="f-tint" type="checkbox" /><span>Tint the image green when lit</span></div>
+      </div>
+      <p class="hint">Lit: the key's active state (the program runs, the playlist is on air, the hold is on). With nothing set, the key keeps its own face.</p>
+    </section>
+  </div>
+  <script src="pi.js"></script>
+</body>
+</html>

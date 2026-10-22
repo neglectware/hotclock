@@ -1,0 +1,7 @@
+{"at_ms": 1791150615843, "granted": "S32_LE 48000 Hz 2 ch, period 1024 frames (21.3 ms) x 8 periods, buffer 8192 frames (170.7 ms)", "input": "hw:CARD=PCH,DEV=0", "min_gap_ms": 20, "threshold_db": -60.0, "tone_hz": null, "tone_out": null, "type": "start"}
+{"abrupt": false, "at_ms": 1791396123909, "level_after_db": -33.0, "level_before_db": -52.5, "level_db": -63.1, "ms": 50, "t_s": 244909.85, "type": "gap"}
+{"abrupt": false, "at_ms": 1791396125879, "level_after_db": -45.7, "level_before_db": -48.6, "level_db": -68.7, "ms": 110, "t_s": 244911.82, "type": "gap"}
+{"abrupt": false, "at_ms": 1791396126008, "level_after_db": -29.7, "level_before_db": -50.9, "level_db": -70.1, "ms": 110, "t_s": 244911.95, "type": "gap"}
+{"abrupt": false, "at_ms": 1791396128238, "level_after_db": -27.7, "level_before_db": -54.5, "level_db": -63.4, "ms": 40, "t_s": 244914.18, "type": "gap"}
+{"abrupt": false, "at_ms": 1791396128599, "level_after_db": -38.5, "level_before_db": -58.8, "level_db": -67.0, "ms": 80, "t_s": 244914.54, "type": "gap"}
+{"abrupt": false, "at_ms": 1791396130349, "level_after_db": -27.0, "level_before_db": -58.2, "level_db": -67.0, "ms": 90, "t_s": 244916.29, "type": "gap"}

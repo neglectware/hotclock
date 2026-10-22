@@ -1,0 +1,42 @@
+# The status display (architecture 11, M7): draws the stations' status on the box's own monitor through KMS,
+# on the text console of tty1, with no X, Wayland or browser. It is a client of the stations' WebSockets and
+# the library service's `display` topic and writes nothing but its own last view, so a failure here cannot
+# touch the audio. Not enabled by the package: `systemctl enable --now hotclock-display` on a box with a screen.
+[Unit]
+Description=Hotclock status display
+Documentation=file:///usr/share/doc/hotclock/deploy.md
+After=systemd-user-sessions.service hotclock-library.service
+Wants=hotclock-library.service
+Conflicts=getty@tty1.service
+After=getty@tty1.service
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+User=hotclock
+Group=hotclock
+SupplementaryGroups=video input
+Environment=MALLOC_ARENA_MAX=2
+StandardInput=tty
+StandardOutput=journal
+StandardError=journal
+TTYPath=/dev/tty1
+TTYReset=yes
+TTYVHangup=yes
+TTYVTDisallocate=yes
+ExecStart=/usr/bin/hotclock display
+Restart=always
+RestartSec=2
+TimeoutStopSec=5
+Nice=10
+OOMScoreAdjust=-100
+StateDirectory=hotclock-display
+ProtectSystem=strict
+ProtectHome=yes
+ReadOnlyPaths=/etc/hotclock
+PrivateTmp=yes
+NoNewPrivileges=yes
+# The playout never depends on this unit: if the screen is gone the display retries every 2 s and logs it once.
+
+[Install]
+WantedBy=multi-user.target

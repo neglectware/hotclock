@@ -1,0 +1,423 @@
+{
+  "$schema": "https://schemas.elgato.com/streamdeck/plugins/manifest.json",
+  "Name": "Hotclock",
+  "Version": "0.1.1.0",
+  "Author": "Neglectware",
+  "Description": "Control Hotclock radio automation from a Stream Deck: now playing, transport, playlists, program blocks and the box's display.",
+  "Category": "Hotclock",
+  "CategoryIcon": "imgs/plugin/category-icon",
+  "Icon": "imgs/plugin/marketplace",
+  "UUID": "com.neglectware.hotclock",
+  "SDKVersion": 2,
+  "Software": {
+    "MinimumVersion": "6.9"
+  },
+  "OS": [
+    {
+      "Platform": "mac",
+      "MinimumVersion": "12"
+    },
+    {
+      "Platform": "windows",
+      "MinimumVersion": "10"
+    }
+  ],
+  "Nodejs": {
+    "Version": "20",
+    "Debug": "enabled"
+  },
+  "CodePath": "bin/plugin.js",
+  "Actions": [
+    {
+      "Name": "Now Playing",
+      "UUID": "com.neglectware.hotclock.now-playing",
+      "Icon": "imgs/actions/now-playing/icon",
+      "Tooltip": "The playing song: album art, title, artist and the time left to the segue. Amber under 30 s, red under 10 s.",
+      "PropertyInspectorPath": "ui/pi.html",
+      "Controllers": [
+        "Keypad"
+      ],
+      "UserTitleEnabled": false,
+      "States": [
+        {
+          "Image": "imgs/actions/now-playing/key",
+          "ShowTitle": false
+        }
+      ]
+    },
+    {
+      "Name": "Elapsed / Remaining",
+      "UUID": "com.neglectware.hotclock.elapsed-remaining",
+      "Icon": "imgs/actions/elapsed-remaining/icon",
+      "Tooltip": "The time elapsed or remaining as big digits. Press to switch.",
+      "PropertyInspectorPath": "ui/pi.html",
+      "Controllers": [
+        "Keypad"
+      ],
+      "UserTitleEnabled": false,
+      "States": [
+        {
+          "Image": "imgs/actions/elapsed-remaining/key",
+          "ShowTitle": false
+        }
+      ]
+    },
+    {
+      "Name": "Next Up",
+      "UUID": "com.neglectware.hotclock.next-up",
+      "Icon": "imgs/actions/next-up/icon",
+      "Tooltip": "The next song and when it starts.",
+      "PropertyInspectorPath": "ui/pi.html",
+      "Controllers": [
+        "Keypad"
+      ],
+      "UserTitleEnabled": false,
+      "States": [
+        {
+          "Image": "imgs/actions/next-up/key",
+          "ShowTitle": false
+        }
+      ]
+    },
+    {
+      "Name": "Next (Segue Now)",
+      "UUID": "com.neglectware.hotclock.next",
+      "Icon": "imgs/actions/next/icon",
+      "Tooltip": "Segue to the next song now.",
+      "PropertyInspectorPath": "ui/pi.html",
+      "Controllers": [
+        "Keypad"
+      ],
+      "UserTitleEnabled": false,
+      "States": [
+        {
+          "Image": "imgs/actions/next/key",
+          "ShowTitle": false
+        }
+      ]
+    },
+    {
+      "Name": "Fade to Next",
+      "UUID": "com.neglectware.hotclock.fade-next",
+      "Icon": "imgs/actions/fade-next/icon",
+      "Tooltip": "Fade out the playing song and start the next.",
+      "PropertyInspectorPath": "ui/pi.html",
+      "Controllers": [
+        "Keypad"
+      ],
+      "UserTitleEnabled": false,
+      "States": [
+        {
+          "Image": "imgs/actions/fade-next/key",
+          "ShowTitle": false
+        }
+      ]
+    },
+    {
+      "Name": "Hold / Resume",
+      "UUID": "com.neglectware.hotclock.hold-resume",
+      "Icon": "imgs/actions/hold-resume/icon",
+      "Tooltip": "Stop after the current song, or release the hold.",
+      "PropertyInspectorPath": "ui/pi.html",
+      "Controllers": [
+        "Keypad"
+      ],
+      "UserTitleEnabled": false,
+      "States": [
+        {
+          "Image": "imgs/actions/hold-resume/key",
+          "ShowTitle": false
+        }
+      ]
+    },
+    {
+      "Name": "Stop",
+      "UUID": "com.neglectware.hotclock.stop",
+      "Icon": "imgs/actions/stop/icon",
+      "Tooltip": "Stop the station. Hold the key for half a second.",
+      "PropertyInspectorPath": "ui/pi.html",
+      "Controllers": [
+        "Keypad"
+      ],
+      "UserTitleEnabled": false,
+      "States": [
+        {
+          "Image": "imgs/actions/stop/key",
+          "ShowTitle": false
+        }
+      ]
+    },
+    {
+      "Name": "Cut",
+      "UUID": "com.neglectware.hotclock.cut",
+      "Icon": "imgs/actions/cut/icon",
+      "Tooltip": "Cut the playing song at once. Hold the key for half a second.",
+      "PropertyInspectorPath": "ui/pi.html",
+      "Controllers": [
+        "Keypad"
+      ],
+      "UserTitleEnabled": false,
+      "States": [
+        {
+          "Image": "imgs/actions/cut/key",
+          "ShowTitle": false
+        }
+      ]
+    },
+    {
+      "Name": "Start / Switch Playlist",
+      "UUID": "com.neglectware.hotclock.switch-playlist",
+      "Icon": "imgs/actions/switch-playlist/icon",
+      "Tooltip": "Switch to a playlist (or start it when the station is stopped).",
+      "PropertyInspectorPath": "ui/pi.html",
+      "Controllers": [
+        "Keypad"
+      ],
+      "UserTitleEnabled": false,
+      "States": [
+        {
+          "Image": "imgs/actions/switch-playlist/key",
+          "ShowTitle": false
+        }
+      ]
+    },
+    {
+      "Name": "Schedule Change",
+      "UUID": "com.neglectware.hotclock.schedule-change",
+      "Icon": "imgs/actions/schedule-change/icon",
+      "Tooltip": "Schedule a one-time playlist change at a time or after a delay. Press again to cancel.",
+      "PropertyInspectorPath": "ui/pi.html",
+      "Controllers": [
+        "Keypad"
+      ],
+      "UserTitleEnabled": false,
+      "States": [
+        {
+          "Image": "imgs/actions/schedule-change/key",
+          "ShowTitle": false
+        }
+      ]
+    },
+    {
+      "Name": "Reshuffle",
+      "UUID": "com.neglectware.hotclock.reshuffle",
+      "Icon": "imgs/actions/reshuffle/icon",
+      "Tooltip": "Reshuffle the active playlist and show the new next song.",
+      "PropertyInspectorPath": "ui/pi.html",
+      "Controllers": [
+        "Keypad"
+      ],
+      "UserTitleEnabled": false,
+      "States": [
+        {
+          "Image": "imgs/actions/reshuffle/key",
+          "ShowTitle": false
+        }
+      ]
+    },
+    {
+      "Name": "Fire Item (Cart)",
+      "UUID": "com.neglectware.hotclock.fire-item",
+      "Icon": "imgs/actions/fire-item/icon",
+      "Tooltip": "Play a library item over the current audio.",
+      "PropertyInspectorPath": "ui/pi.html",
+      "Controllers": [
+        "Keypad"
+      ],
+      "UserTitleEnabled": false,
+      "States": [
+        {
+          "Image": "imgs/actions/fire-item/key",
+          "ShowTitle": false
+        }
+      ]
+    },
+    {
+      "Name": "Loudness",
+      "UUID": "com.neglectware.hotclock.loudness",
+      "Icon": "imgs/actions/loudness/icon",
+      "Tooltip": "The window loudness against the target. Hold to reset the integrated reading.",
+      "PropertyInspectorPath": "ui/pi.html",
+      "Controllers": [
+        "Keypad"
+      ],
+      "UserTitleEnabled": false,
+      "States": [
+        {
+          "Image": "imgs/actions/loudness/key",
+          "ShowTitle": false
+        }
+      ]
+    },
+    {
+      "Name": "Station Status",
+      "UUID": "com.neglectware.hotclock.station-status",
+      "Icon": "imgs/actions/station-status/icon",
+      "Tooltip": "Green, amber or red: the station's alerts and whether it answers. Press to open the web UI.",
+      "PropertyInspectorPath": "ui/pi.html",
+      "Controllers": [
+        "Keypad"
+      ],
+      "UserTitleEnabled": false,
+      "States": [
+        {
+          "Image": "imgs/actions/station-status/key",
+          "ShowTitle": false
+        }
+      ]
+    },
+    {
+      "Name": "Start Playlist as Program",
+      "UUID": "com.neglectware.hotclock.program-start",
+      "Icon": "imgs/actions/program-start/icon",
+      "Tooltip": "Start a playlist as the program now. Hold to cancel tonight's automatic start.",
+      "PropertyInspectorPath": "ui/pi.html",
+      "Controllers": [
+        "Keypad"
+      ],
+      "UserTitleEnabled": false,
+      "States": [
+        {
+          "Image": "imgs/actions/program-start/key",
+          "ShowTitle": false
+        }
+      ]
+    },
+    {
+      "Name": "Arm / Disarm Program",
+      "UUID": "com.neglectware.hotclock.program-arm",
+      "Icon": "imgs/actions/program-arm/icon",
+      "Tooltip": "Arm or disarm the fallback automatic start of a manual program start.",
+      "PropertyInspectorPath": "ui/pi.html",
+      "Controllers": [
+        "Keypad"
+      ],
+      "UserTitleEnabled": false,
+      "States": [
+        {
+          "Image": "imgs/actions/program-arm/key",
+          "ShowTitle": false
+        }
+      ]
+    },
+    {
+      "Name": "Next Block",
+      "UUID": "com.neglectware.hotclock.next-block",
+      "Icon": "imgs/actions/next-block/icon",
+      "Tooltip": "The next program block and its countdown. Amber under 60 s, red under 10 s.",
+      "PropertyInspectorPath": "ui/pi.html",
+      "Controllers": [
+        "Keypad"
+      ],
+      "UserTitleEnabled": false,
+      "States": [
+        {
+          "Image": "imgs/actions/next-block/key",
+          "ShowTitle": false
+        }
+      ]
+    },
+    {
+      "Name": "Fire Block",
+      "UUID": "com.neglectware.hotclock.fire-block",
+      "Icon": "imgs/actions/fire-block/icon",
+      "Tooltip": "Fire a program block now.",
+      "PropertyInspectorPath": "ui/pi.html",
+      "Controllers": [
+        "Keypad"
+      ],
+      "UserTitleEnabled": false,
+      "States": [
+        {
+          "Image": "imgs/actions/fire-block/key",
+          "ShowTitle": false
+        }
+      ]
+    },
+    {
+      "Name": "Continue",
+      "UUID": "com.neglectware.hotclock.continue",
+      "Icon": "imgs/actions/continue/icon",
+      "Tooltip": "Release a wait block that waits for the operator.",
+      "PropertyInspectorPath": "ui/pi.html",
+      "Controllers": [
+        "Keypad"
+      ],
+      "UserTitleEnabled": false,
+      "States": [
+        {
+          "Image": "imgs/actions/continue/key",
+          "ShowTitle": false
+        }
+      ]
+    },
+    {
+      "Name": "Skip Next Block",
+      "UUID": "com.neglectware.hotclock.skip-block",
+      "Icon": "imgs/actions/skip-block/icon",
+      "Tooltip": "Skip the next program block.",
+      "PropertyInspectorPath": "ui/pi.html",
+      "Controllers": [
+        "Keypad"
+      ],
+      "UserTitleEnabled": false,
+      "States": [
+        {
+          "Image": "imgs/actions/skip-block/key",
+          "ShowTitle": false
+        }
+      ]
+    },
+    {
+      "Name": "Abort Program",
+      "UUID": "com.neglectware.hotclock.abort-program",
+      "Icon": "imgs/actions/abort-program/icon",
+      "Tooltip": "End the program without further blocks. Hold the key for half a second.",
+      "PropertyInspectorPath": "ui/pi.html",
+      "Controllers": [
+        "Keypad"
+      ],
+      "UserTitleEnabled": false,
+      "States": [
+        {
+          "Image": "imgs/actions/abort-program/key",
+          "ShowTitle": false
+        }
+      ]
+    },
+    {
+      "Name": "Back-time End",
+      "UUID": "com.neglectware.hotclock.end-at",
+      "Icon": "imgs/actions/end-at/icon",
+      "Tooltip": "Back-time the program so it ends at a set time; shows the countdown to that end.",
+      "PropertyInspectorPath": "ui/pi.html",
+      "Controllers": [
+        "Keypad"
+      ],
+      "UserTitleEnabled": false,
+      "States": [
+        {
+          "Image": "imgs/actions/end-at/key",
+          "ShowTitle": false
+        }
+      ]
+    },
+    {
+      "Name": "Display View",
+      "UUID": "com.neglectware.hotclock.display-view",
+      "Icon": "imgs/actions/display-view/icon",
+      "Tooltip": "Switch what the box's display shows: a station, both, rotating, or the processing view.",
+      "PropertyInspectorPath": "ui/pi.html",
+      "Controllers": [
+        "Keypad"
+      ],
+      "UserTitleEnabled": false,
+      "States": [
+        {
+          "Image": "imgs/actions/display-view/key",
+          "ShowTitle": false
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{product}} status</title>
+<link rel="icon" href="/static/favicon.svg">
+<link rel="stylesheet" href="/static/style.css">
+<style>
+  html, body { overflow: hidden; background: #0b0e13; }
+  /* The box's screen (architecture 11.2b): `single` shows one station full screen, `split` both side by side below a
+     shared top bar, `rotate` alternates with a time bar. Each station is the single-station page (display.html) in a
+     frame: whole screen for single and rotate, one half for split. Sizes follow --k = min(width / 1024, height / 600). */
+  #screen { --k: min(calc(100vw / 1024), calc(100vh / 600)); position: fixed; inset: 0; }
+  iframe { position: absolute; border: 0; background: #0b0e13; visibility: hidden; }
+  body.single iframe.full.on, body.rotate iframe.full.on, body.split iframe.half, iframe.pview.on { visibility: visible; }
+  iframe.full, iframe.pview { left: 0; top: 0; width: 100vw; height: 100vh; }
+  body.split iframe.half { top: calc(var(--k) * 40); height: calc(var(--k) * 560); width: calc(var(--k) * 511); }
+  iframe.half.l { left: calc((100vw - var(--k) * 1024) / 2); } iframe.half.r { left: calc((100vw - var(--k) * 1024) / 2 + var(--k) * 513); }
+  iframe.half { top: calc(var(--k) * 40); height: calc(var(--k) * 560); width: calc(var(--k) * 511); }
+  /* the bar: name, version and the network dot at the left, the clock in the middle, the date and CPU use at the right;
+     all at the clock's 31 px. Each item has its own setting (display.bar_*), read from /api/v1/display/bar. */
+  #bar { position: absolute; left: 0; right: 0; top: 0; height: calc(var(--k) * 40); display: none; grid-template-columns: 1fr auto 1fr; align-items: center; padding: 0 calc(var(--k) * 12); background: var(--panel); font-family: var(--mono); font-size: calc(var(--k) * 31); line-height: 1.15; white-space: nowrap; }
+  body.split #bar { display: grid; margin: 0 calc((100vw - var(--k) * 1024) / 2); }
+  #bar .side { display: flex; align-items: center; gap: calc(var(--k) * 19); min-width: 0; overflow: hidden; }
+  #bar .side.r { justify-content: flex-end; gap: calc(var(--k) * 37); }
+  #bar .side > * { flex: none; }
+  #bar [hidden] { display: none; }
+  #bar #prod { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; color: var(--dim); }
+  #net { width: calc(var(--k) * 18); height: calc(var(--k) * 18); border-radius: 50%; background: currentColor; color: var(--dim); }
+  #net.up { color: var(--green); } #net.down { color: var(--red); }
+  #cpu.busy { color: var(--amber); }
+  #div { position: absolute; width: calc(var(--k) * 2); background: var(--line); top: calc(var(--k) * 40); bottom: 0; left: calc((100vw - var(--k) * 1024) / 2 + var(--k) * 511); display: none; }
+  body.split #div { display: block; }
+  #rot { position: absolute; left: 0; top: calc(var(--k) * 41); height: calc(var(--k) * 3); background: var(--amber); width: 0; display: none; z-index: 5; }
+  body.rotate #rot { display: block; }
+  #rot.pinned { background: var(--red); }
+</style>
+</head>
+<body class="single" data-api="{{base}}">
+<div id="screen">
+  <div id="bar">
+    <div class="side l"><span id="net" title="network" hidden></span><span id="prod">{{product}}</span></div>
+    <span id="clk">--:--:--</span>
+    <div class="side r"><span id="date"></span><span id="cpu">CPU --</span></div>
+  </div>
+  <div id="div"></div>
+  <div id="rot"></div>
+</div>
+<script src="/static/common.js"></script>
+<script src="/static/screen.js"></script>
+</body>
+</html>

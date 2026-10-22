@@ -1,0 +1,18 @@
+#!/bin/sh
+# A systemd generator: runs at boot and at every `systemctl daemon-reload`, and makes every station that has a file
+# in /etc/hotclock/stations start with the box (`hotclock-station@<name>` wanted by multi-user.target).
+# This replaces `systemctl enable hotclock-station@<name>` for stations made from the web page: polkit cannot limit
+# `enable` to one unit, so the service user does not get it, and a station exists exactly when its file does (the
+# unit also has ConditionPathExists= on that file). Stations enabled the old way keep working beside it.
+# The directory comes from the first argument of the generator protocol; with none, nothing is done.
+dir="${1:-}"
+[ -n "$dir" ] || exit 0
+stations="${HOTCLOCK_STATIONS_DIR:-/etc/hotclock/stations}"
+mkdir -p "$dir/multi-user.target.wants"
+for f in "$stations"/*.toml; do
+    [ -e "$f" ] || continue
+    n=$(basename "$f" .toml)
+    case "$n" in '' | .* | *[!a-z0-9_-]* | [-_]*) continue ;; esac
+    ln -sf /lib/systemd/system/hotclock-station@.service "$dir/multi-user.target.wants/hotclock-station@$n.service"
+done
+exit 0

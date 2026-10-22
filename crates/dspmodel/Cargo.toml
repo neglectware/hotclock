@@ -1,0 +1,12 @@
+[package]
+name = "dspmodel"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+description = "The reference model of the multiband gain curve (architecture 11.2a), shared by the engine tests and the status display"
+
+[lints]
+workspace = true
+
+[dependencies]
+serde_json = { workspace = true }

@@ -1,0 +1,59 @@
+# /etc/hotclock/stations/office.toml (architecture 5.1). `hotclock station office` reads it.
+name = "office"
+listen = "0.0.0.0:8301"
+# The sound card: `cat /proc/asound/cards`, then hw:CARD=<id>,DEV=0. `null` plays to nowhere in real time.
+device = "hw:CARD=PCH,DEV=0"
+rate = 48000
+period_frames = 1024
+periods = 8
+formats = ["S32_LE", "S24_3LE", "S16_LE"]
+target_lufs = -18.0
+default_playlist = "Office originals"
+# A gain on the whole output, dB (-40 to +6), after the safety limiter: replaces alsamixer. Also settable on the web System page.
+#output_trim_db = 0.0
+transition_preset = "plexamp"
+emergency_playlist = "Office emergency"
+ram_loop_seconds = 300
+lock_ahead_s = 20
+silence_dbfs = -50.0
+silence_s = 15
+# The processing chain (architecture 6, the Processing panel on the System page): `bypass` (nothing but the safety
+# limiter, the program unchanged), `gentle` or `radio`. The settings that differ from the preset are kept in
+# [chain.<block>] tables below, which the Processing panel writes; they are listed in the Settings page.
+processing_preset = "bypass"
+
+# A station with no sound card (the office, with OBS on another machine reading the program over the LAN):
+# device = "null" and the [stream] block below (docs/obs-stream.md). The stream is served at
+# http://<this box>:<listen port>/stream/program.ogg as lossless FLAC in Ogg. `device = "null"` is paced by
+# the system clock; rate_trim_ppm (top level, before any [table]) cancels a clock offset the drift soak
+# measured. A station with a card and [stream] plays through the card and the stream at once.
+#rate_trim_ppm = 0
+#[stream]
+#enabled = true
+#mount = "program"
+#flac_level = 5
+#burst_ms = 1000
+#max_listeners = 4
+#listener_lag_s = 5
+#expect_listener = true
+#no_listener_alert_s = 60
+
+# The loudness controller (architecture 6.1, M6a): a slow gain, steered by the gated loudness of the last four
+# minutes of program, that lands the stream at what YouTube and Twitch want, under a true-peak ceiling. ON for the
+# office; the Eve station leaves it off and sets its level by ear. Everything below is optional (these are the
+# defaults except `enabled`). The web UI's System screen and `PUT /api/v1/loudness` change the numbers live
+# and write this block back. `gate_categories` (categories, or category kinds, left out of the measurement while
+# they are audible) is changed here, then restart.
+[loudness]
+enabled = true
+target_lufs = -14.0
+true_peak_dbtp = -1.0
+window_s = 240
+max_slew_db_per_min = 1.0
+deadband_lu = 0.25
+gain_min_db = -10
+gain_max_db = 8
+min_valid_s = 30
+gate_categories = ["liner", "id", "promo"]
+trim_tau_s = 600
+trim_range_db = 3

@@ -1,0 +1,51 @@
+# One unit per station: `systemctl enable --now hotclock-station@office`. The instance name is the station's
+# name, and its configuration is /etc/hotclock/stations/<name>.toml (architecture 10).
+[Unit]
+Description=Hotclock station %i
+Documentation=file:///usr/share/doc/hotclock/deploy.md
+After=network-online.target sound.target hotclock-library.service
+Wants=network-online.target
+StartLimitIntervalSec=0
+# A station exists exactly when its file does: the Stations page removes the file to delete a station, and a unit
+# enabled the old way for a station that is gone is skipped at boot instead of failing in a loop.
+ConditionPathExists=/etc/hotclock/stations/%i.toml
+
+[Service]
+Type=notify
+User=hotclock
+Group=audio
+# /etc/hotclock/stations and the station's .toml belong to root:hotclock (775/664, tmpfiles) so that the station can
+# rewrite its own configuration. The process runs with primary group audio; without this line it lacks group
+# hotclock and every write from the web UI failed with "Permission denied".
+SupplementaryGroups=hotclock
+# glibc keeps freed pages per thread arena, so resident memory steps up to a high-water mark; two arenas keep
+# that mark low (the 2026-10-01 Box A soak: RssAnon +11 % in steps with a flat live heap). The station's
+# real-time thread does not allocate, so fewer arenas cost it nothing.
+Environment=MALLOC_ARENA_MAX=2
+ExecStart=/usr/bin/hotclock station %i --config /etc/hotclock/stations/%i.toml
+# `Restart=always` also covers the deliberate exit 75 (a corrupt state.db moved aside) and the watchdog
+# (`WATCHDOG=trigger` from the station's own stall detector, or no feed for WatchdogSec).
+Restart=always
+RestartSec=2
+WatchdogSec=10
+TimeoutStopSec=5
+LimitRTPRIO=30
+LimitMEMLOCK=infinity
+Nice=-5
+OOMScoreAdjust=-900
+# /run/hotclock holds the crash-loop counters (`<station>.starts`). Shared by the station units and kept when
+# one stops, or a crash loop would reset itself at every restart.
+RuntimeDirectory=hotclock
+RuntimeDirectoryPreserve=yes
+StateDirectory=hotclock/stations/%i
+ProtectSystem=strict
+# /etc/hotclock/stations is where the station writes its own configuration file (the Processing panel, the settings
+# page): an atomic write needs the directory, for the temporary file and the `.bak` copy. Without it every change
+# from the web UI failed with "Read-only file system".
+ReadWritePaths=/etc/hotclock/stations /var/lib/hotclock/stations/%i /var/lib/hotclock/backup
+ReadOnlyPaths=/var/lib/hotclock/media
+PrivateTmp=yes
+NoNewPrivileges=yes
+
+[Install]
+WantedBy=multi-user.target

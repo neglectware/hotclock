@@ -1,0 +1,39 @@
+# The library service (architecture 10): library.db, the media store, the import pipeline, the web admin
+# and the notifier, on port 8300. One per box, shared by the stations.
+[Unit]
+Description=Hotclock library service
+Documentation=file:///usr/share/doc/hotclock/deploy.md
+After=network-online.target
+Wants=network-online.target
+# Retried for ever, as before. `OnFailure=` sends `service_failed` by mail (12.1) through the notifier's rules, so
+# a crash loop is one message an hour (the rate limit), not one per restart. On systemd 255 (Ubuntu 24.04) the
+# one-shot runs at each failed start, not only when a start limit is reached (checked with
+# dev/notify-systemd-smoke.sh); the rate limit is what keeps it to one mail.
+StartLimitIntervalSec=0
+OnFailure=hotclock-notify@%n.service
+
+[Service]
+Type=simple
+User=hotclock
+Group=hotclock
+# glibc keeps freed pages per thread arena, so resident memory steps up to a high-water mark; two arenas keep
+# that mark low (the 2026-10-01 Box A soak: RssAnon +11 % in steps with a flat live heap). The station's
+# real-time thread does not allocate, so fewer arenas cost it nothing.
+Environment=MALLOC_ARENA_MAX=2
+ExecStart=/usr/bin/hotclock library
+Restart=always
+RestartSec=2
+TimeoutStopSec=10
+Nice=5
+IOSchedulingClass=idle
+OOMScoreAdjust=-500
+StateDirectory=hotclock
+ProtectSystem=strict
+# /etc/hotclock: the Settings page edits the configuration files (packaging/tmpfiles/hotclock.conf gives the
+# service user write access to that directory and nothing else under /etc).
+ReadWritePaths=/var/lib/hotclock /etc/hotclock
+PrivateTmp=yes
+NoNewPrivileges=yes
+
+[Install]
+WantedBy=multi-user.target

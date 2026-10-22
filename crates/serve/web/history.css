@@ -1,0 +1,33 @@
+/* The settings history panel (history.js). */
+.hist-back { position: fixed; inset: 0; z-index: 60; background: rgba(0, 0, 0, .6); display: flex; justify-content: center; align-items: flex-start; padding: 4vh 12px; overflow-y: auto; }
+.hist-card { width: 100%; max-width: 860px; box-sizing: border-box; }
+.hist-head { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 6px; }
+.hist-head h3 { margin: 0; }
+.hist-head .grow { flex: 1 1 0; }
+.hist-note { margin: 4px 0 10px; }
+.hist-row { display: grid; grid-template-columns: minmax(150px, 210px) 1fr auto; gap: 6px 14px; padding: 10px 0; border-top: 1px solid var(--line); align-items: start; }
+.hist-row.now { background: rgba(62, 207, 142, .05); }
+.hist-when { display: flex; flex-direction: column; gap: 4px; align-items: flex-start; }
+.hist-changes { margin: 0; padding: 0; list-style: none; font-family: var(--mono, ui-monospace, monospace); font-size: 13px; overflow-wrap: anywhere; }
+.hist-changes li { padding: 1px 0; }
+.hist-btns { display: flex; gap: 6px; }
+.hist-detail { grid-column: 1 / -1; background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 8px 10px; }
+.hist-detail[hidden] { display: none; }
+.hist-sub { color: var(--dim); font-size: 12px; text-transform: uppercase; letter-spacing: .04em; margin: 6px 0 4px; }
+.hist-tablewrap { overflow-x: auto; }
+.hist-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.hist-raw { font-size: 11px; }
+.hist-label { font-weight: 600; }
+.hist-table td.before { color: var(--red); }
+.hist-table td.after { color: var(--green); }
+.hist-table td { overflow-wrap: anywhere; }
+button.link { background: none; border: 0; padding: 0; color: var(--blue); cursor: pointer; text-decoration: underline; font: inherit; }
+@media (max-width: 640px) {
+  .hist-back { padding: 8px; }
+  .hist-row { grid-template-columns: 1fr; }
+  .hist-when { flex-direction: row; flex-wrap: wrap; align-items: center; }
+  .hist-btns button { flex: 1; }
+  .hist-head h3 { flex: 1 0 100%; }
+  .hist-head .grow { display: none; }
+  .hist-head button { flex: 1; white-space: nowrap; }
+}

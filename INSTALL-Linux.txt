@@ -1,0 +1,26 @@
+Hotclock, Linux tarball
+
+This tarball is for Linux systems that are not Ubuntu or Debian. (On Ubuntu 24.04 or newer, use the .deb file.)
+
+What you need
+- 64-bit Intel or AMD (amd64), with glibc 2.39 or newer (check: ldd --version).
+- systemd, and the ALSA library (package libasound2 or alsa-lib).
+- curl (the service health checks use it). Optional: polkit, alsa-utils.
+
+What is in the tarball
+- hotclock                 the program (one file)
+- packaging/               the systemd units, the udev rule, the example configuration and install.sh
+- docs/                    the documentation (docs/deploy.md describes the layout the units expect)
+
+Steps (as root)
+1. cp hotclock /usr/bin/hotclock ; cp packaging/bin/hotclock-restore /usr/bin/
+2. Create the user and folders: cp packaging/sysusers/hotclock.conf /usr/lib/sysusers.d/ ; cp packaging/tmpfiles/hotclock.conf /usr/lib/tmpfiles.d/ ; systemd-sysusers ; systemd-tmpfiles --create
+3. cp packaging/systemd/hotclock-library.service packaging/systemd/hotclock-station@.service /etc/systemd/system/
+4. mkdir -p /etc/hotclock/stations ; cp packaging/etc/hotclock.toml /etc/hotclock/ ; cp packaging/examples/office.toml /etc/hotclock/stations/
+5. Edit /etc/hotclock/stations/office.toml (the sound card, the port).
+6. cp packaging/udev/60-hotclock-usb-audio.rules /etc/udev/rules.d/
+7. systemctl daemon-reload ; systemctl enable --now hotclock-library hotclock-station@office
+8. Open http://<this computer>:8300/
+
+Hotclock has no login. Use it only on a trusted local network.
+This path is less tested than the .deb. If something does not work, tell us what your system is.

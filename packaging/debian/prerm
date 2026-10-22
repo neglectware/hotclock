@@ -1,0 +1,15 @@
+#!/bin/sh
+# Removing the package stops what it runs. (An upgrade does not go through here: `upgrade.sh` restarts.)
+set -e
+case "$1" in
+remove|purge)
+    if [ -d /run/systemd/system ]; then
+        for u in $(systemctl list-units --plain --no-legend --all 'hotclock-station@*.service' | awk '{print $1}'); do
+            systemctl stop "$u" || true
+        done
+        systemctl stop hotclock-display.service || true
+        systemctl stop hotclock-library.service || true
+    fi
+    ;;
+esac
+exit 0

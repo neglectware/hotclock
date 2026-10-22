@@ -1,0 +1,29 @@
+[package]
+name = "library"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+common.workspace = true
+analysis.workspace = true
+rusqlite.workspace = true
+sha2.workspace = true
+lofty.workspace = true
+image.workspace = true
+zstd.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+notify.workspace = true
+
+[target.'cfg(target_os = "linux")'.dependencies]
+rustix.workspace = true
+
+[dev-dependencies]
+engine.workspace = true
+fixtures.workspace = true

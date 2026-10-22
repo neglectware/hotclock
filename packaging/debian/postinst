@@ -1,0 +1,42 @@
+#!/bin/sh
+# Hotclock package: create the service user and the directories, load the udev rule and the units. It never
+# starts or restarts a station: playout is stopped and started by an operator (`upgrade.sh` does it in order,
+# one station at a time, and checks each).
+set -e
+case "$1" in
+configure)
+    if [ -x /usr/bin/systemd-sysusers ]; then
+        systemd-sysusers /usr/lib/sysusers.d/hotclock.conf
+    fi
+    if [ -x /usr/bin/systemd-tmpfiles ]; then
+        systemd-tmpfiles --create /usr/lib/tmpfiles.d/hotclock.conf
+    fi
+    # The unit now lists /etc/hotclock/stations as writable and adds group hotclock itself. A drop-in that was added by hand for the same
+    # purpose (10-config-write.conf) is then redundant: remove it, and only that file.
+    d=/etc/systemd/system/hotclock-station@.service.d/10-config-write.conf
+    if [ -f "$d" ]; then
+        rm -f "$d"
+        rmdir /etc/systemd/system/hotclock-station@.service.d 2>/dev/null || true
+        echo "hotclock: removed $d (the station unit now covers /etc/hotclock/stations)."
+    fi
+    if [ -x /usr/bin/udevadm ]; then
+        udevadm control --reload-rules 2>/dev/null || true
+    fi
+    if [ -d /run/systemd/system ]; then
+        systemctl daemon-reload || true
+        # The journal cap takes effect on the journal's next start.
+        systemctl kill --kill-whom=main --signal=SIGUSR2 systemd-journald.service 2>/dev/null || true
+        if [ -n "$2" ]; then
+            echo "hotclock: upgraded from $2. The running services still run the old binary: run"
+            echo "  /usr/share/hotclock/upgrade.sh restart      (library first, then each station, checking health)"
+            echo "when a short break at a song boundary is acceptable."
+        else
+            echo "hotclock: installed. Create /etc/hotclock/hotclock.toml and /etc/hotclock/stations/<name>.toml"
+            echo "(examples in /usr/share/hotclock/examples/), then:"
+            echo "  systemctl enable --now hotclock-library      (then make stations on the web page, Stations; or enable hotclock-station@<name>)"
+            echo "and, on a box with a monitor: systemctl enable --now hotclock-display   (see deploy.md, Status display)"
+        fi
+    fi
+    ;;
+esac
+exit 0

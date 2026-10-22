@@ -1,0 +1,20 @@
+[package]
+name = "fixtures"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[lib]
+path = "src/lib.rs"
+
+[[bin]]
+name = "fixtures"
+path = "src/main.rs"
+
+[dependencies]
+lofty.workspace = true
+image.workspace = true
+libc.workspace = true

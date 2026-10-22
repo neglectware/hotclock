@@ -1,0 +1,4 @@
+# Keep USB audio interfaces (the Eve station's C-Media dongle) out of USB autosuspend: a suspended
+# converter is a station without a card. The power control belongs to the USB device, the parent of the
+# audio interface, so the rule runs when the interface appears.
+ACTION=="add|bind", SUBSYSTEM=="usb", ENV{DEVTYPE}=="usb_interface", ATTR{bInterfaceClass}=="01", RUN+="/bin/sh -c 'echo on > /sys%p/../power/control'"

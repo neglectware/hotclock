@@ -1,0 +1,17 @@
+# /etc/hotclock/stations/eve.toml: the Eve station keeps its DAC into the Wing (its own port, its own card).
+name = "eve"
+listen = "0.0.0.0:8302"
+device = "hw:CARD=Device,DEV=0"
+target_lufs = -18.0
+default_playlist = "Eve elevator"
+# A gain on the whole output, dB (-40 to +6), after the safety limiter: replaces alsamixer. Also settable on the web System page.
+#output_trim_db = 0.0
+transition_preset = "plexamp"
+emergency_playlist = "Eve emergency"
+# The processing chain is bypassed here (processing_preset = "bypass", the default): the program passes unchanged.
+# `gentle` and `radio` are the other shipped presets (architecture 6); the System page's Processing panel edits them.
+#
+# The loudness controller is off here: the level goes into the Wing by ear (architecture 6.1). To try it,
+# see the [loudness] block of examples/office.toml.
+#[loudness]
+#enabled = false

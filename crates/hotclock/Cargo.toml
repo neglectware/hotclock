@@ -1,0 +1,88 @@
+[package]
+name = "hotclock"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+description = "Hotclock: a radio-automation playout engine for 24/7 live streams"
+
+[lints]
+workspace = true
+
+[[bin]]
+name = "hotclock"
+path = "src/main.rs"
+
+[features]
+# A counting global allocator for the soaks (off in the package): the live heap in bytes, beside RssAnon and
+# the macOS footprint, to tell a leak from an allocator that keeps freed pages.
+alloc-count = []
+
+[dependencies]
+common.workspace = true
+engine.workspace = true
+analysis.workspace = true
+library.workspace = true
+station.workspace = true
+serve.workspace = true
+stream.workspace = true
+display.workspace = true
+clap.workspace = true
+ctrlc.workspace = true
+serde_json.workspace = true
+rusqlite.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+
+[target.'cfg(target_os = "linux")'.dependencies]
+libc.workspace = true
+
+[dev-dependencies]
+fixtures.workspace = true
+common.workspace = true
+display.workspace = true
+image.workspace = true
+lofty.workspace = true
+rusqlite.workspace = true
+sha2.workspace = true
+serde_json.workspace = true
+library.workspace = true
+serve.workspace = true
+
+[package.metadata.deb]
+name = "hotclock"
+maintainer = "Neglectware <noreply@localhost>"
+copyright = "Neglectware"
+license-file = ["../../packaging/copyright", "0"]
+section = "sound"
+priority = "optional"
+extended-description = """\
+Hotclock is a radio-automation playout engine for 24/7 live streams: a library service, one station process \
+per output, real-time mixing with segues, and a web admin. See /usr/share/doc/hotclock/deploy.md."""
+depends = "libc6 (>= 2.39), libasound2t64 (>= 1.2.10), systemd (>= 250), curl"
+recommends = "alsa-utils, polkitd | policykit-1"
+maintainer-scripts = "../../packaging/debian"
+conf-files = ["/etc/hotclock/hotclock.toml"]
+assets = [
+    ["target/release/hotclock", "usr/bin/hotclock", "755"],
+    ["../../packaging/bin/hotclock-restore", "usr/bin/hotclock-restore", "755"],
+    ["../../packaging/systemd/hotclock-library.service", "lib/systemd/system/hotclock-library.service", "644"],
+    ["../../packaging/systemd/hotclock-station@.service", "lib/systemd/system/hotclock-station@.service", "644"],
+    ["../../packaging/systemd/hotclock-display.service", "lib/systemd/system/hotclock-display.service", "644"],
+    ["../../packaging/systemd/hotclock-kiosk.service", "usr/share/hotclock/examples/hotclock-kiosk.service", "644"],
+    ["../../packaging/systemd/hotclock-stations-generator", "usr/lib/systemd/system-generators/hotclock-stations-generator", "755"],
+    ["../../packaging/systemd/hotclock-notify@.service", "lib/systemd/system/hotclock-notify@.service", "644"],
+    ["../../packaging/udev/60-hotclock-usb-audio.rules", "lib/udev/rules.d/60-hotclock-usb-audio.rules", "644"],
+    ["../../packaging/tmpfiles/hotclock.conf", "usr/lib/tmpfiles.d/hotclock.conf", "644"],
+    ["../../packaging/sysusers/hotclock.conf", "usr/lib/sysusers.d/hotclock.conf", "644"],
+    ["../../packaging/polkit/50-hotclock.rules", "usr/share/polkit-1/rules.d/50-hotclock.rules", "644"],
+    ["../../packaging/journald/hotclock.conf", "etc/systemd/journald.conf.d/hotclock.conf", "644"],
+    ["../../packaging/etc/hotclock.toml", "etc/hotclock/hotclock.toml", "644"],
+    ["../../packaging/examples/office.toml", "usr/share/hotclock/examples/office.toml", "644"],
+    ["../../packaging/examples/eve.toml", "usr/share/hotclock/examples/eve.toml", "644"],
+    ["../../packaging/install.sh", "usr/share/hotclock/install.sh", "755"],
+    ["../../packaging/upgrade.sh", "usr/share/hotclock/upgrade.sh", "755"],
+    ["../../packaging/acceptance.sh", "usr/share/hotclock/acceptance.sh", "755"],
+    ["../../dev/soak-hardware.sh", "usr/share/hotclock/soak-hardware.sh", "755"],
+    ["../../tools/stream-drift.py", "usr/share/hotclock/stream-drift.py", "755"],
+    ["../../docs/deploy.md", "usr/share/doc/hotclock/deploy.md", "644"],
+]

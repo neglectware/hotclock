@@ -1,0 +1,69 @@
+# Glossary
+
+This page explains the words that Hotclock and these pages use. The words are in alphabetical order.
+
+- **AGC.** Automatic gain control. A slow gain that holds the program at a target level. In the processing chain, it also rides a fade up, holds in silence and clamps down on a loud start. See [The processing chain](processing#agc).
+- **Album run.** Consecutive tracks of one album, played in order. They play with no gap and no overlap, as the artist made them.
+- **Alert.** A record that the station had to work around a problem, or has a problem now. An alert has a code and a severity. It stays active until it clears or someone acknowledges it. An alert is the condition; a **notification** is the message about it. See [Alerts](alerts).
+- **Ambient.** A category and analysis profile for music with long soft starts and tails. It gets a lower silence threshold and a longer fade.
+- **As-run log.** The record of what played, when, and how each item ended. It is the History page.
+- **Assist mode.** A mode in which the station holds after every item until someone presses Next. It is for a show where a person starts every item. See [On Air](on-air#assist-mode).
+- **Attack.** The first strong sound of an item. Hotclock lines up the overlap with the item before on the attack. Playing never starts at the attack, unless you ask for it.
+- **Band.** One frequency range of the multiband compressor. A crossover splits the program into 2 to 6 bands, and each band is compressed separately. See [The processing chain](processing#multiband).
+- **Block.** An entry of a playlist that does something instead of playing an item: an insert rule, a timed action, or a scheduled start. See [Timed blocks](timed-blocks).
+- **Boundary.** The moment one item takes over from the item before it. Most timed blocks wait for a boundary near their time, so no song is cut.
+- **Box.** The computer that runs Hotclock. One box runs one library service and one or more stations.
+- **Category.** The kind of an item: music, liner, id, promo, ad, ambient, longform, or one you make. The category sets how its items are analyzed, how loud they are, and which crossfade style joins them to their neighbors.
+- **Checkpoint.** The station's note of what it is doing. The station writes it every two seconds, so it can resume after a restart.
+- **Committed.** An entry that is within the lock-ahead time of its start. The planner never changes it. You can still remove it.
+- **Crossfade style.** A named set of rules for the transition from one item to the next: `basic`, `plexamp`, `sam`, `fm` or `none`. The API and the setting key call it a transition preset (`transition_preset`). See [Crossfades](crossfades).
+- **Cue-in, cue-out.** The markers where playing starts and ends. Hotclock never plays the silence before the cue-in or after the cue-out.
+- **Cut.** A change with a very short fade (30 milliseconds). The next item starts at the same moment.
+- **dBFS.** Decibels relative to the largest level that a digital signal can have. 0 dBFS is full scale.
+- **dBTP.** Decibels of true peak. See true peak.
+- **Deck.** The shuffled order that a rotation deals from. Each pass through a playlist is a fresh deck.
+- **Emergency playlist.** The playlist that the station falls back to when something is wrong. See [Failures and recovery](failures-and-recovery#emergency-playlist).
+- **Flow block.** A timed block that decides what plays: play, switch playlist, stop, fade and stop, end. It preempts what is running. The other kind is the **side block**, which does its action and changes nothing else.
+- **Gapless.** A transition with no gap and no overlap at all, for the tracks of an album.
+- **Hold.** A state in which the item on air plays to its end and nothing follows it, until someone presses Resume.
+- **ID.** A station identification: a short item that says what station this is. It plays at the top of the hour or every few songs.
+- **Insert rule.** A standing rule that plays an item from a category after every N songs. See [Insert rules](insert-rules).
+- **Item.** One audio file in the library: a song, a liner, an ID, a promo or a show.
+- **Library service.** The part of Hotclock that runs the web pages, the library database, the imports and the notifications. It does not play sound. The stations do.
+- **Liner.** A short item, usually a spoken line, that plays between songs.
+- **Lock-ahead.** The time before an item starts at which it becomes committed: `lock_ahead_s` (20 seconds).
+- **LRA.** Loudness range, in LU. How much the loudness of a piece changes. A value over 15 LU suggests an ambient piece.
+- **LU.** A loudness unit. A difference of one LU is a difference of one decibel in loudness.
+- **LUFS.** Loudness units relative to full scale, measured as the EBU R128 standard describes (with K-weighting). The unit of loudness. A louder program has a higher (less negative) LUFS value.
+- **Marker.** A time in an item that the station uses: cue-in, attack, intro, segue, fade-out, cue-out. See [Markers and analysis](markers-and-analysis).
+- **No-repeat.** The time that a song must wait before it can play again in a shuffle playlist.
+- **Normalization.** Setting the gain of each item so that all items have the same loudness. See [Markers and analysis](markers-and-analysis#normalization).
+- **Notification.** The email or other message that tells a person about an alert. The Notifications page sets who gets which notifications. See [Notifications](notifications).
+- **One-shot change.** A switch to a playlist at one moment, one time only.
+- **Pinned.** A queue entry that someone put in place by hand. The planner keeps it where it is.
+- **Playlist.** A named list of items, albums and blocks, in shuffle or sequential mode.
+- **PPM.** A peak program meter. It reacts fast to peaks and falls slowly.
+- **Processing chain.** The row of optional blocks between the mix and the limiters (AGC, equalizer, multiband compressor and others). Each block has a switch, settings and presets. See [The processing chain](processing).
+- **Program.** The playlist that a station runs at the top level, with its start time (T0).
+- **Quarantine.** The state of an item that fails again and again. Hotclock never plays it, but it stays in the library. See [Failures and recovery](failures-and-recovery#quarantine).
+- **Queue.** What a station will play, in order, planned ahead.
+- **RAM loop.** The last resort: a few minutes of the emergency playlist held in memory, so the station can play when the disk fails.
+- **Rotation.** A shuffle playlist. Its items are a pool, dealt in a fresh random order for every pass.
+- **Safe mode.** The state of a station that crashed again and again. It plays the emergency playlist until someone acknowledges the alert.
+- **Safety limiter.** A limiter at the end of the program path. It keeps every sample at or below -1 dBFS. It is always on.
+- **Scheduled start.** A recurring start of a playlist, made on the Schedule page.
+- **Segue.** The point where the next item comes in. The segue marker is the last time an item is above its threshold on the way out. As a verb, to segue is to start the next item while the last one is ending.
+- **Sequential.** A playlist mode in which entries play in list order.
+- **Shuffle.** A playlist mode that deals items in a random order, with no-repeat rules.
+- **Silence detector.** The station's check that the program is not silent when it should have sound.
+- **Song.** An item of music. Other items (liners, IDs, promos) are not songs.
+- **Station.** One program feed, with its own queue, sound card or stream, and settings.
+- **Station block.** A block that applies under every program of a station, such as the hourly ID.
+- **Style.** See crossfade style.
+- **T0.** The moment a playlist became the station's program. You can set a timed block to a time after T0.
+- **Tail.** The part of an item after its segue marker, up to its cue-out.
+- **Transition.** The change from one item to the next, at a boundary. A crossfade style sets how a transition is made. A queue entry can carry its own transition setting (the **transition** menu on On Air). See [Crossfades](crossfades).
+- **Transition style.** The older name of a crossfade style. See crossfade style.
+- **Trim.** A gain. The **output trim** is the last gain before the sound card. The **gain trim** is a gain that you set on one item.
+- **True peak.** The highest level that a signal reaches after it is turned back into an analog wave. It can be higher than any sample. Measured in dBTP.
+- **Underrun (xrun).** The sound card ran out of audio because the box did not deliver it in time. One underrun makes a click. Several are an `xrun_burst`.

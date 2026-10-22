@@ -1,0 +1,15 @@
+#!/bin/sh
+# Purging removes the package's own files and never the data: /var/lib/hotclock (the library, the media, the
+# stations' state and the snapshots) and /etc/hotclock stay. Delete them by hand if that is what is meant.
+set -e
+case "$1" in
+remove|purge)
+    if [ -d /run/systemd/system ]; then
+        systemctl daemon-reload || true
+    fi
+    if [ -x /usr/bin/udevadm ]; then
+        udevadm control --reload-rules 2>/dev/null || true
+    fi
+    ;;
+esac
+exit 0
