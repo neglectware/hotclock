@@ -110,7 +110,8 @@ In the **Faceplates** view the cards are in a grid. The grid has four columns on
 The **Processing chain** card has these controls:
 
 - the **chain preset** drop-down
-- a **Bypass the chain** button
+- a **Bypass the chain** button, with the line "The loudness controller and the safety limiters stay on." under it
+- a **Loudness controller off** box
 - a **View** switch: **Rack**, **Faceplates** or **List**
 - a line that tells you which blocks are on
 
@@ -141,7 +142,7 @@ A card shows its main controls. It keeps the other controls under **Advanced**.
 
 - **Advanced** is closed until you open it. It stays open while you stay on the page.
 - The switch is at the right of the second line of the nameplate. When it is open, the other settings appear under the main controls.
-- For example, the AGC shows target, maximum gain, gate and the two rates. The fast detector and the fast clamp are under **Advanced**.
+- For example, the AGC shows target, maximum gain, gate and the two rates. The fast detector, the fast clamp, the hold and the ratio are under **Advanced**.
 
 ### Meters and displays {#meters-and-displays}
 
@@ -215,6 +216,20 @@ The station's config file names the shipped chain preset (`processing_preset`). 
 
 **Bypass the chain** takes the whole chain out of the path, and puts it back, with the same crossfade. It does not change the saved settings. At the next start, the station uses the configured chain again.
 
+The loudness controller and the safety limiters stay on: they come after the chain. A line under the button says so. **Loudness controller off**, next to the button, switches the controller off and back on. It is the same setting as the switch on the controller's card, and it saves at once.
+
+### Line up a mixer input {#line-up}
+
+A mixer meters in dBFS peak, not in LUFS. To set the input of a mixer (for example a Wing) for the line out of the box:
+
+1. Press **Bypass the chain**, and check **Loudness controller off**.
+2. Play a Demo tone. The tones are made at -20 dBFS RMS on each channel. Matched to -18 LUFS, they peak at about -17.3 dBFS.
+3. Read **dBFS peak** on [On Air](on-air#program-meters), L and R.
+4. Set the mixer's input gain until its meter shows the same peak.
+5. Press **Chain bypassed: switch back in**, and clear **Loudness controller off**.
+
+The output trim also changes what the mixer receives. Set the trim first (see [Set the output trim](output-and-level#output-trim)), then line up.
+
 ## The shipped chain presets {#shipped-presets}
 
 | Block | `bypass` | `gentle` | `radio` |
@@ -267,11 +282,16 @@ Because only valid blocks count, the silence between songs does not dilute eithe
 
 **The fast clamp.** This is for a loud song that starts after something quieter.
 
+- **Fast clamp** (`fast_clamp`) turns it on or off. It is on by default. With the clamp off, the gain always falls at `down_db_per_s`.
 - The clamp acts when the fast level is `fast_trigger_db` (6) or more above the level that the gain was set for.
-- The gain then falls to the new level in `fast_attack_ms`, not at 3 dB/s. This is the time to cover 95 percent of the way: 10 ms for `radio`.
+- The gain then falls to the new level in `fast_attack_ms`, not at 3 dB/s. This is the time to cover 95 percent of the way: 10 ms for `radio`. It is 2 to 200 ms. A longer time is gentler. The AGC works out the clamp every 2 ms, so 2 ms is the shortest time.
 - After the clamp, the AGC holds the rise of the gain for one fast window.
 - The fast level is a 400 ms mean, so a drum hit inside a loud program does not trigger the clamp.
-- `fast_attack_ms = 0` turns the clamp off.
+- Before this switch existed, `fast_attack_ms = 0` turned the clamp off. A station file or a preset that still says 0 is read as the clamp off, with a fast attack of 10 ms. A value under 2 ms is read as 2 ms.
+
+**Hold.** `hold_s` (0 to 10 s, default 0) keeps the gain from rising for that long after its last fall, at the down rate or by the fast clamp. For example, after a quiet passage a hard snare hit pulls the gain down. With a hold, the gain does not climb back between the hits. 0 lets the gain rise at once, as before. The hold of the Wing's Rider works the same way.
+
+**Ratio.** `ratio` (1 to 10, default 1) sets how much of the distance to the target the AGC corrects. 1 corrects all of it. 2 corrects half: a program 8 dB over the target is turned down 4 dB, and a program 6 dB under it is turned up 3 dB. The ratio applies to the slow gain and to the fast clamp. `max_gain_db` and `max_reduction_db` still limit the gain. With a ratio over 1, the fast trigger compares the gain with the gain that the ratio asks for. The ratio of the Wing's Rider seems to work this way.
 
 **On the meters**, the reduction of the AGC is its gain, with a sign: plus is a boost. The gate chip comes on while the gain holds.
 

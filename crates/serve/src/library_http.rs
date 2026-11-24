@@ -1936,14 +1936,16 @@ impl LibraryApi {
                 let rows: Result<Vec<Value>, _> = c
                     .prepare(
                         "SELECT p.id, p.name, p.mode, p.no_repeat_minutes, p.enabled, p.station_id,
-                                (SELECT COUNT(*) FROM playlist_entries e WHERE e.playlist_id = p.id AND e.block_id IS NULL)
+                                (SELECT COUNT(*) FROM playlist_entries e WHERE e.playlist_id = p.id AND e.block_id IS NULL),
+                                (SELECT COUNT(*) FROM playlist_entries e WHERE e.playlist_id = p.id AND e.block_id IS NOT NULL)
                          FROM playlists p ORDER BY p.name COLLATE NOCASE",
                     )
                     .and_then(|mut st| {
                         st.query_map([], |r| {
                             Ok(json!({"id": r.get::<_, i64>(0)?, "name": r.get::<_, String>(1)?, "mode": r.get::<_, String>(2)?,
                                       "no_repeat_minutes": r.get::<_, i64>(3)?, "enabled": r.get::<_, i64>(4)? != 0,
-                                      "station_id": r.get::<_, Option<String>>(5)?, "entries": r.get::<_, i64>(6)?}))
+                                      "station_id": r.get::<_, Option<String>>(5)?, "entries": r.get::<_, i64>(6)?,
+                                      "blocks": r.get::<_, i64>(7)?}))
                         })
                         .map(|r| r.collect::<Result<Vec<_>, _>>())
                     })
@@ -3599,7 +3601,7 @@ impl Handler for LibraryHandler {
                                 .lib()
                                 .map(|l| a3.display_json(l.conn()))
                                 .unwrap_or(Value::Null);
-                            json!({"v": 1, "type": "snapshot", "seq": seq, "data": {"revision": rev, "display": disp, "meters": a3.meters_current().to_json()}}).to_string()
+                            json!({"v": 1, "type": "snapshot", "seq": seq, "data": {"revision": rev, "display": disp, "meters": a3.meters_current().to_json(), "night": a3.night_snapshot()}}).to_string()
                         }),
                         stream,
                         topics,
@@ -3677,6 +3679,9 @@ impl Handler for LibraryHandler {
             ("GET", ["display"]) | ("PUT", ["display"]) => api.display(req),
             ("GET", ["display", "meters"]) | ("PUT", ["display", "meters"]) => api.meters(req),
             ("GET", ["display", "bar"]) => Response::json(200, &api.display_bar_json()),
+            ("GET", ["display", "status"]) => Response::json(200, &api.display_status_json()),
+            ("GET", ["display", "night"]) => api.night_get(),
+            ("POST", ["display", "night", "preview"]) => api.night_preview(req),
             ("GET", ["stations"]) => api.stations_json(),
             ("GET", ["settings"]) => api.settings_get(),
             ("PUT", ["settings", "station", name]) => api.settings_put(req, Some(name)),
@@ -3759,6 +3764,9 @@ pub fn known_shape(path: &str) -> bool {
         "api/v1/display",
         "api/v1/display/meters",
         "api/v1/display/bar",
+        "api/v1/display/status",
+        "api/v1/display/night",
+        "api/v1/display/night/preview",
         "api/v1/stations",
         "api/v1/settings",
         "api/v1/settings/station/*",

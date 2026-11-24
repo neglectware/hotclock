@@ -5,7 +5,7 @@ import { KeyController, LONG_PRESS_MS, type KeyHandle } from "../../src/core/con
 import type { Env } from "../../src/core/defs.js";
 import { Http } from "../../src/core/http.js";
 import { StationModel } from "../../src/core/model.js";
-import { allText, FakeClock, liveModel, nowJson, snapshot, texts } from "./helpers.js";
+import { FakeClock, liveModel, nowJson, snapshot } from "./helpers.js";
 
 /** A station connection that is only a model and a list of listeners. */
 class FakeConn {
@@ -20,7 +20,7 @@ class FakeConn {
   changed() {
     for (const l of [...this.listeners]) l();
   }
-  artFor() {
+  artFor(_url?: string | null): string | null | undefined {
     return null;
   }
 }
@@ -47,7 +47,9 @@ interface Rig {
   clock: FakeClock;
   conn: FakeConn;
   fetched: { method: string; url: string; body?: string; headers?: Record<string, string> }[];
-  images: string[];
+  images: (string | undefined)[];
+  titles: (string | undefined)[];
+  states: number[];
   oks: number;
   alerts: number;
   key: KeyHandle;
@@ -67,8 +69,15 @@ function rig(opts: { online?: boolean } = {}): Rig {
     fetched.push({ method: init?.method ?? "GET", url, body: init?.body as string | undefined, headers: init?.headers as Record<string, string> });
     return new Response("{}", { status: 202, headers: { "content-type": "application/json" } });
   });
-  const r = { clock, conn, fetched, images: [] as string[], oks: 0, alerts: 0 } as Rig;
-  r.key = { setImage: (u) => r.images.push(u as string), showOk: () => void r.oks++, showAlert: () => void r.alerts++, setSettings: () => undefined };
+  const r = { clock, conn, fetched, images: [], titles: [], states: [], oks: 0, alerts: 0 } as unknown as Rig;
+  r.key = {
+    setState: (n) => void r.states.push(n),
+    setTitle: (t) => void r.titles.push(t),
+    setImage: (u) => void r.images.push(u),
+    showOk: () => void r.oks++,
+    showAlert: () => void r.alerts++,
+    setSettings: () => undefined,
+  };
   r.env = { hub: new FakeHub(() => conn) as never, http, clock: clock.now, globals: () => ({ host: "box" }), openUrl: () => undefined, log: () => undefined };
   return r;
 }
@@ -100,7 +109,8 @@ describe("a key's presses", () => {
       const r = rig();
       const k = new KeyController(def, r.key, r.env);
       k.setSettings({ playlistId: 3 });
-      const text = allText(decode(r.images.at(-1)!));
+      const text = title(r);
+      expect(r.states.at(-1)).toBe(0);
       expect(text).toContain("NO");
       expect(text).toContain("STATION");
       k.keyDown();
@@ -112,7 +122,7 @@ describe("a key's presses", () => {
       k.setSettings({ playlistId: 3, station: "eve", stationPort: 8302 });
       r.clock.advance(1500);
       await vi.advanceTimersByTimeAsync(1500);
-      expect(allText(decode(r.images.at(-1)!))).not.toContain("STATION");
+      expect(title(r)).not.toContain("STATION");
     }
   });
 
@@ -120,7 +130,7 @@ describe("a key's presses", () => {
     const r = rig({ online: false });
     const k = new KeyController(P.next, r.key, r.env);
     k.setSettings({ station: "office" });
-    expect(allText(decode(r.images.at(-1)!))).toContain("OFFLINE");
+    expect(title(r)).toContain("OFFLINE");
     k.keyDown();
     k.keyUp();
     await settle();
@@ -157,7 +167,7 @@ describe("a key's presses", () => {
     r.clock.advance(600);
     await vi.advanceTimersByTimeAsync(600);
     expect(r.fetched).toEqual([]);
-    expect(allText(decode(r.images.at(-1)!))).toContain("HOLD");
+    expect(title(r)).toContain("HOLD");
 
     k.keyDown();
     await vi.advanceTimersByTimeAsync(LONG_PRESS_MS + 10);
@@ -198,7 +208,7 @@ describe("a key's presses", () => {
     r.env.globals = () => ({});
     const k = new KeyController(P.next, r.key, r.env);
     k.setSettings({ station: "office" });
-    expect(allText(decode(r.images.at(-1)!))).toContain("SET UP");
+    expect(title(r)).toContain("SET UP");
     k.keyDown();
     k.keyUp();
     expect(r.fetched).toEqual([]);
@@ -223,9 +233,9 @@ describe("the countdown on a Now Playing key", () => {
     k.setSettings({ station: "office" });
     let worst = 0;
     const shown = (): number | null => {
-      const t = texts(decode(r.images.at(-1)!)).find((x) => /^-\d+:\d\d$/.test(x.text));
+      const t = title(r).split("\n").find((x) => /^-\d+:\d\d$/.test(x));
       if (!t) return null;
-      const [mm, ss] = t.text.slice(1).split(":").map(Number);
+      const [mm, ss] = t.slice(1).split(":").map(Number);
       return (mm * 60 + ss) * 1000;
     };
     let tick = 0;
@@ -244,12 +254,78 @@ describe("the countdown on a Now Playing key", () => {
       if (s !== null) worst = Math.max(worst, Math.abs(s - truth));
     }
     expect(worst).toBeLessThanOrEqual(500);
-    // 55 s of drawing at 4 Hz: about one new picture a second, never more than two.
+    // 55 s of drawing at 4 Hz: about one new title a second, never more than two.
     expect(k.painter.sent).toBeLessThanOrEqual(55 * 2);
     expect(k.painter.sent).toBeGreaterThan(40);
   });
 });
 
-function decode(uri: string): string {
-  return decodeURIComponent(uri.replace("data:image/svg+xml;charset=utf8,", ""));
+/** The title Stream Deck shows now: the last one the plugin set (undefined: the person's own). */
+function title(r: Rig): string {
+  return r.titles.at(-1) ?? "";
 }
+
+describe("a standard Stream Deck key", () => {
+  it("shows its own label until the person sets a title, then the person's title (the plugin's own echo is not theirs)", async () => {
+    const r = rig();
+    const k = new KeyController(P.switchPlaylist, r.key, r.env);
+    k.setSettings({ station: "office", playlistId: 9, playlistName: "Night rotation" });
+    expect(title(r)).toBe("Night\nrotation");
+    expect(r.images).toEqual([undefined]);
+    // the app tells the plugin its own title back: nothing changes
+    k.titleChanged("Night\nrotation");
+    expect(r.titles).toEqual(["Night\nrotation"]);
+    // the person types a title: the key shows it (no title from the plugin), in the app's own font and position
+    k.titleChanged("NIGHT");
+    r.clock.advance(600);
+    await vi.advanceTimersByTimeAsync(600);
+    expect(r.titles.at(-1)).toBeUndefined();
+    // and clears it: the key's own label again
+    k.titleChanged("");
+    r.clock.advance(600);
+    await vi.advanceTimersByTimeAsync(600);
+    expect(title(r)).toBe("Night\nrotation");
+  });
+
+  it("switches to state 1 (green) while lit and back to state 0, by setState, not by drawing", async () => {
+    const r = rig();
+    const k = new KeyController(P.switchPlaylist, r.key, r.env);
+    k.setSettings({ station: "office", playlistId: 1, playlistName: "Pre-show" });
+    // the snapshot's active playlist is 1 and the station plays: lit
+    expect(r.states).toEqual([1]);
+    r.conn.model.apply(snapshot({ active_playlist: { id: 2, name: "Elevator" } }));
+    r.conn.changed();
+    r.clock.advance(600);
+    await vi.advanceTimersByTimeAsync(600);
+    expect(r.states).toEqual([1, 0]);
+    expect(r.images).toEqual([undefined]);
+  });
+
+  it("a problem shows over the person's title, on state 0", async () => {
+    const r = rig({ online: false });
+    const k = new KeyController(P.holdResume, r.key, r.env);
+    k.setSettings({ station: "office" });
+    k.titleChanged("HOLD IT");
+    r.clock.advance(600);
+    await vi.advanceTimersByTimeAsync(600);
+    expect(title(r)).toContain("OFFLINE");
+    expect(r.states.at(-1)).toBe(0);
+  });
+
+  it("an info key writes its live text whatever the title field says; Now Playing draws the album art", async () => {
+    const r = rig();
+    const k = new KeyController(P.elapsedRemaining, r.key, r.env);
+    k.setSettings({ station: "office" });
+    k.titleChanged("MY TITLE");
+    r.clock.advance(600);
+    await vi.advanceTimersByTimeAsync(600);
+    expect(title(r)).toMatch(/^REMAINING\n-?\d+:\d\d$/);
+
+    const r2 = rig();
+    r2.conn.artFor = () => "data:image/jpeg;base64,AAAA";
+    const np = new KeyController(P.nowPlaying, r2.key, r2.env);
+    np.setSettings({ station: "office" });
+    expect(title(r2)).toMatch(/^-\d+:\d\d\nFrom Silence$/);
+    expect(decodeURIComponent(r2.images.at(-1) ?? "")).toContain("data:image/jpeg;base64,AAAA");
+  });
+});

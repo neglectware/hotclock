@@ -14,6 +14,7 @@ pub mod http;
 pub mod library_http;
 pub mod meters;
 pub mod multipart;
+pub mod night_http;
 pub mod notify;
 pub mod observe;
 pub mod plex_http;

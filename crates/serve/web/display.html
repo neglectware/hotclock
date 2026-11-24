@@ -50,6 +50,7 @@
   .nums span.lcv.s0 { color: var(--dim); } .nums span.lcv.s1 { color: var(--blue); } .nums span.lcv.s2 { color: var(--green); }
   .nums span.lcv.s3, .nums span.lcv.s4 { color: var(--amber); }
   #tgt { font-size: calc(var(--s) * 24); color: var(--dim); margin-top: calc(var(--s) * 4); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  #pkdb { font-size: calc(var(--s) * 24); color: var(--dim); white-space: nowrap; font-variant-numeric: tabular-nums; }
   #stg { grid-column: 25 / 55; grid-row: 3; padding: 0 !important; }
   #stg canvas, #sp canvas { width: 100%; height: 100%; display: block; }
   #sp { grid-column: 55 / 101; grid-row: 3; padding: 0 !important; }
@@ -76,7 +77,7 @@
     #hd, #now, #q, #mt, #al { grid-column: 1; }
     #hd { grid-row: 1; } #now { grid-row: 2; } #q { grid-row: 3; } #mt { grid-row: 4; } #al { grid-row: 5; }
     #d > section { border-radius: 0; border-width: 0 0 1px 0; padding: 0 calc(var(--k) * 12); }
-    #sp, #stg, #ar, #hd .prod, #now .album, #now .lbl, #now .el, #now .chips, #q h3, #al h3, #mt h3, #tgt, .qr .bd { display: none; }
+    #sp, #stg, #ar, #hd .prod, #now .album, #now .lbl, #now .el, #now .chips, #q h3, #al h3, #mt h3, #tgt, #pkdb, .qr .bd { display: none; }
     #hd { font-size: calc(var(--k) * 31); gap: calc(var(--k) * 16); }
     #hd .clock, #hd .pillstate, #hd .ind { font-size: calc(var(--k) * 31); }
     #hd .pillstate { padding: 0 calc(var(--k) * 12); } #hd .ind { padding: 0 calc(var(--k) * 12); border-radius: calc(var(--k) * 10); }
@@ -106,7 +107,7 @@
   body.half #hd, body.half #now, body.half #q, body.half #mt, body.half #al { grid-column: 1; }
   body.half #hd { grid-row: 1; } body.half #now { grid-row: 2; } body.half #q { grid-row: 3; } body.half #mt { grid-row: 4; } body.half #al { grid-row: 5; }
   body.half #d > section { padding: 0 calc(var(--k) * 10); border-radius: 0; border-width: 0 0 1px 0; }
-  body.half #sp, body.half #stg, body.half #ar, body.half #hd .prod, body.half #hd .clock, body.half #hd .ind, body.half #now .album, body.half #now .lbl, body.half #now .el, body.half #now .chips, body.half #q h3, body.half #al h3, body.half #mt h3, body.half #tgt, body.half .qr .bd, body.half .qr .thumb, body.half .nums .iv { display: none; }
+  body.half #sp, body.half #stg, body.half #ar, body.half #hd .prod, body.half #hd .clock, body.half #hd .ind, body.half #now .album, body.half #now .lbl, body.half #now .el, body.half #now .chips, body.half #q h3, body.half #al h3, body.half #mt h3, body.half #tgt, body.half #pkdb, body.half .qr .bd, body.half .qr .thumb, body.half .nums .iv { display: none; }
   body.half #hd { justify-content: space-between; } body.half #hd .pillstate { order: 2; }
   body.half #now { display: grid; grid-template-columns: calc(var(--k) * 96) 1fr; grid-template-rows: calc(var(--k) * 114) auto; column-gap: calc(var(--k) * 12); align-content: start; padding-top: calc(var(--k) * 8); }
   body.half #now img, body.half #now .noart { width: calc(var(--k) * 96); height: calc(var(--k) * 96); aspect-ratio: auto; grid-row: 1; grid-column: 1; }
@@ -138,7 +139,7 @@
     <div class="ds"><div class="times"><span class="big el" id="elapsed">0:00</span><span class="dim lbl">elapsed</span><span class="big" id="remain">0:00</span><span class="dim lbl">left</span></div><div class="segue" id="segue"></div></div>
     <div class="bar"><i id="prog"></i></div></div></section>
   <section id="q"><h3>NEXT</h3><div id="qrows"></div></section>
-  <section id="mt"><div><canvas id="mcv" width="640" height="220"></canvas></div><div><div class="nums" id="nums"></div><div id="tgt"></div></div></section>
+  <section id="mt"><div><canvas id="mcv" width="640" height="220"></canvas></div><div><div class="nums" id="nums"></div><div id="tgt"></div><div id="pkdb"></div></div></section>
   <section id="stg"><canvas id="stcv" width="600" height="300"></canvas></section>
   <section id="sp"><canvas id="scv" width="720" height="240"></canvas></section>
   <section id="ar"><h3>AS RUN</h3><div id="arrows"></div></section>

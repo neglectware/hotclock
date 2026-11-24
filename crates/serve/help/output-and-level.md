@@ -25,6 +25,26 @@ items (each at its own matched gain)
 - **The output trim** is one final gain. See [Set the output trim](#output-trim).
 - **The stream** is taken after the trim, so it carries the same signal as the card.
 
+## How fast a start sounds {#start-latency}
+
+A start from silence sounds at once, like a sampler. This is for starts timed to talk or to a beat. It counts for:
+
+- **Play** on a stopped station,
+- **Resume** after a hold,
+- **Next** in assist mode,
+- a **Start / Switch Playlist** key,
+- a program start, from the page or a Stream Deck key.
+
+From the request to the first sample in the sound card's buffer takes less than 30 milliseconds. In the tests it took 7 to 30 ms, 20 ms in the middle.
+
+The card's buffer comes on top. It is `period_frames` times `periods`: with the defaults, about 170 ms (see [The sound card](settings-reference)). Before this release a start also waited 300 ms, so the whole start took about half a second.
+
+How the box does it:
+
+- The output keeps running while the station is stopped. It plays silence, so a start does not wait for the card.
+- The box makes each block of audio just before the card needs it. A start goes into the next block.
+- While the next start will come from silence (stopped, held, in assist), the box decodes the first 3 seconds of the next item ahead.
+
 ## The loudness target
 
 `target_lufs` (default -18) is the loudness that every item is brought to. It is an internal reference. It is not the level the listener hears at the end: the devices after the station set that level (the mixer, the receiver of the stream). It is a station setting, and it takes effect from the next item planned.
@@ -55,6 +75,18 @@ Use the trim, not the mixer of the sound server, to match the card to the next d
 
 The program meters on [On Air](on-air#program-meters) and on the status display read the signal after the limiter. A second tap, before the processing chain, feeds the "before" spectrum of the full status display layout. Loudness numbers are in LUFS. To set how the display's meters move, see [The status display](status-display#meter-ballistics).
 
+**dBFS peak** shows the sample peak of each channel, L and R, to 0.1 dB. It holds the highest value for one second. A mixer's peak meter reads the same thing, so you can match the two. On a steady tone the number stands still.
+
+### Line up a mixer input {#line-up}
+
+1. On the **Processing** page, press **Bypass the chain**, and check **Loudness controller off**. The bypass alone leaves the controller on.
+2. Play a Demo tone. The tones are made at -20 dBFS RMS on each channel. Matched to -18 LUFS, they peak at about -17.3 dBFS.
+3. Read **dBFS peak** on On Air, L and R.
+4. Set the mixer's input gain until its meter shows the same peak.
+5. Switch the chain back in, and clear **Loudness controller off**.
+
+Set the [output trim](#output-trim) before you line up: it changes what the mixer receives.
+
 ## The processing chain {#the-processing-chain}
 
 The chain is an **Optimod-style processor** between the mix and the limiters. Each block works like a plug-in in a fixed broadcast order. Each has its own on/off switch, all its settings in view and its own presets. The whole chain has presets too: `bypass` (the default, nothing in the chain), `gentle` and `radio`.
@@ -78,17 +110,20 @@ The loudness controller is a slow gain. It brings the station's output to a targ
 
 - It measures the loudness of the program that enters its gain (ITU-R BS.1770, the same as the LUFS numbers).
 - It leaves out what must not count: silence, a stopped or held station, a master-gain fade, and the categories in `gate_categories` (liners, IDs and promos by default).
+- `loudness.enabled` turns the controller on or off. It is off by default. Turn it on for a stream that must arrive at a fixed loudness.
 - It moves the gain toward its target (`loudness.target_lufs`, default -14) minus the measured loudness.
+- The gain stays between `gain_min_db` (default -10) and `gain_max_db` (default 8). Widen this range only for material that is far from the target.
+- The gain does not move until it has `min_valid_s` seconds of measurable program (default 30).
 - The gain never moves faster than `max_slew_db_per_min` (default 1 dB a minute). It does not move while it is within `deadband_lu` (0.25 LU) of the correct value.
-- A slow trim corrects what the limiter takes off. Its time constant is `trim_tau_s` (10 minutes), and it moves at most `trim_range_db`.
+- A slow trim corrects what the limiter takes off. Its time constant is `trim_tau_s` (default 600 seconds, 10 minutes). It moves at most `trim_range_db` (default 3 dB).
 - After a restart, the controller continues from the gain saved with the checkpoint. It does not start again from zero.
 
 **Hold or follow.** The setting `within_item` selects how the controller reads the program level:
 
-- `hold` judges each item as a whole. The program level is the median loudness of the last `robust_items` items, and each item counts for at most `item_cap_s`. A quiet passage, or one very quiet item, almost does not move the volume. Several quiet items in a row do. This keeps the dynamics of slow music.
-- `follow` tracks the loudness of the last `window_s` continuously. It makes the level more even and suits fast programming.
+- `hold` judges each item as a whole. `hold` is the default. The program level is the median loudness of the last `robust_items` items (default 5). Each item counts for at most `item_cap_s` (default 240 seconds). An item remembers its own loudness for `item_memory_s` (default 600 seconds). A quiet passage, or one very quiet item, almost does not move the volume. Several quiet items in a row do. This keeps the dynamics of slow music.
+- `follow` tracks the loudness of the last `window_s` continuously (default 240 seconds). It makes the level more even and suits fast programming.
 
-**Limiting.** `max_limiter_gr_db` holds the gain down, so the loudest peak of the window never needs more than that much limiting. A value of 24 turns this off. `peak_allowance_db` is how far normalization can push the peaks of an item into the limiter while the controller is on. A low setting has a clear cost: an item whose peaks are high for its loudness stays quieter than the target. It is not limited up to the target.
+**Limiting.** `max_limiter_gr_db` holds the gain down, so the loudest peak of the window never needs more than that much limiting (default 5 dB). A value of 24 turns this off. `peak_allowance_db` (default 0) is how far normalization can push the peaks of an item into the limiter while the controller is on. A low setting has a clear cost: an item whose peaks are high for its loudness stays quieter than the target. It is not limited up to the target.
 
 **Chain makeup and this gain.** The [output makeup](processing#makeup) of the chain sets the level that the chain delivers. The controller adds the rest. When the chain is close to the target, the gain of the controller stays near 0 dB. When the gain stays more than 3 dB from 0 for five minutes, the controller card shows a tip with the numbers.
 

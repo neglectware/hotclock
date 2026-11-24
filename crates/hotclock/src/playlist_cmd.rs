@@ -28,6 +28,9 @@ enum PlaylistCmd {
         #[arg(long, default_value_t = 120)]
         no_repeat_minutes: i64,
     },
+    /// Remove every entry of a playlist, keeping the playlist and its settings (acceptance.sh refills its own
+    /// playlists this way on a second run).
+    Clear { name: String },
     /// Append items (by id) to a playlist.
     Add { name: String, items: Vec<i64> },
     /// Append a standing `insert_every` block: an item of a category every N songs (4.5).
@@ -125,6 +128,22 @@ pub fn run(a: PlaylistArgs, global_path: &Path) -> ExitCode {
                 p.no_repeat_minutes = no_repeat_minutes;
                 let id = lib.create_playlist(&p).map_err(|e| e.to_string())?;
                 println!("created playlist {id} `{name}`");
+            }
+            PlaylistCmd::Clear { name } => {
+                let id = lib
+                    .playlist_id(&name)
+                    .map_err(|e| e.to_string())?
+                    .ok_or_else(|| format!("no playlist `{name}`"))?;
+                let rows = lib.playlists().map_err(|e| e.to_string())?;
+                let entries: Vec<i64> = rows
+                    .iter()
+                    .filter(|p| p.id == id)
+                    .flat_map(|p| p.entries.iter().map(|e| e.id))
+                    .collect();
+                for e in &entries {
+                    lib.remove_playlist_entry(*e).map_err(|e| e.to_string())?;
+                }
+                println!("removed {} entries from `{name}`", entries.len());
             }
             PlaylistCmd::Add { name, items } => {
                 let id = lib

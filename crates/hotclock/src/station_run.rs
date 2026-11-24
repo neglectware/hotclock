@@ -116,6 +116,7 @@ pub fn run(
     opts.backup_dir = Some(global.backup_dir());
     opts.loudness_gate = cfg.loudness.gate_categories.clone();
     opts.time_zone = global.time_zone.clone();
+    opts.unload_after_min = global.programs.unload_after_min.minutes();
     // The start counter (1.5): five starts within 120 s is a crash loop, and the station comes up in
     // safe mode, playing the emergency playlist until an operator acknowledges it.
     let starts_path = global.run_dir.join(format!("{}.starts", cfg.name));
@@ -446,6 +447,16 @@ pub fn run(
             audio.xruns = s.xruns;
             audio.device_restored = device_restored;
             audio.delay_frames = s.delay_frames;
+            if s.onset_count != audio.onset_count {
+                // the output thread's monotonic stamp as a wall time
+                let ago_ns = clock.monotonic_ns().saturating_sub(s.onset_ns);
+                let now_ms = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .map(|d| d.as_secs_f64() * 1000.0)
+                    .unwrap_or(0.0);
+                audio.onset_wall_ms = now_ms - ago_ns as f64 / 1e6;
+                audio.onset_count = s.onset_count;
+            }
             audio.open = s.state != RtState::DeviceLost;
             audio.rt_state = match s.state {
                 RtState::Playing => "playing",
@@ -595,6 +606,7 @@ pub fn run(
                     }
                     Cmd::RaiseAlert { code, critical } => station.hook_raise_alert(&code, critical),
                     Cmd::ClearAlert { code } => station.hook_clear_alert(&code),
+                    Cmd::UnloadAge { seconds } => station.hook_unload_age(seconds),
                     Cmd::DbFault { mode } => station.set_state_fault(match mode.as_str() {
                         "readonly" => FaultMode::ReadOnly,
                         "full" => FaultMode::Full,
@@ -613,7 +625,8 @@ pub fn run(
             );
             last_log = Instant::now();
         }
-        std::thread::sleep(Duration::from_millis(20));
+        // The pause between steps, cut short by a command from the API.
+        driver.wait(Duration::from_millis(20));
     }
     station.flush();
     api.meter.stop.store(true, Ordering::Relaxed);

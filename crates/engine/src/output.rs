@@ -70,6 +70,10 @@ pub trait Output: Send {
     /// Frames queued in the device but not yet audible, or `None` if the device cannot say
     /// right now (the caller keeps its previous value rather than publishing a wrong one).
     fn delay_frames(&mut self) -> Option<i64>;
+    /// Wait until the device has room for `frames` frames, so the block about to be rendered is
+    /// written at once (the rt thread renders just in time). The default does not wait: `write`
+    /// blocks instead. Must not allocate.
+    fn wait_room(&mut self, _frames: usize) {}
     /// Recover from an `Xrun`, `Suspended` or `Other` fault (prepare/resume).
     fn recover(&mut self, fault: Fault) -> Result<(), OutputError>;
     /// Try to open the device again after `Lost`. Called from the recovery thread only.
@@ -156,6 +160,20 @@ impl Pacer {
         Ok(())
     }
 
+    /// Sleep until `frames` would fit (the buffer drains at the rate once started).
+    pub fn wait_room(&mut self, frames: usize) {
+        let n = frames as f64;
+        self.update(self.clock.monotonic_ns());
+        if self.xrun_pending {
+            return;
+        }
+        let space = self.buffer - self.fill;
+        if space < n {
+            let wait_ns = ((n - space) / self.rate * 1e9).ceil() as u64;
+            self.clock.sleep_until_ns(self.last_ns + wait_ns);
+        }
+    }
+
     pub fn delay(&mut self) -> i64 {
         self.update(self.clock.monotonic_ns());
         self.fill.round() as i64
@@ -202,6 +220,9 @@ impl Output for NullOutput {
     }
     fn delay_frames(&mut self) -> Option<i64> {
         Some(self.pacer.delay())
+    }
+    fn wait_room(&mut self, frames: usize) {
+        self.pacer.wait_room(frames);
     }
     fn recover(&mut self, _fault: Fault) -> Result<(), OutputError> {
         self.pacer.recover();
@@ -293,6 +314,11 @@ impl FileOutput {
 impl Output for FileOutput {
     fn name(&self) -> &str {
         "file"
+    }
+    fn wait_room(&mut self, frames: usize) {
+        if let Some(p) = &mut self.pacer {
+            p.wait_room(frames);
+        }
     }
     fn granted(&self) -> &Granted {
         &self.granted

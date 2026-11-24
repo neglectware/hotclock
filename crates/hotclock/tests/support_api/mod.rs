@@ -16,8 +16,13 @@ pub fn free_port() -> u16 {
     l.local_addr().unwrap().port()
 }
 
+/// A fresh directory for one test. Each call gets its own (a sequence number in the name): two tests of one process
+/// that pass the same name ran in parallel and each removed the other's files (display_m7's two `m7bar` tests:
+/// "i/o: No such file or directory" while importing).
 pub fn tmpdir(name: &str) -> PathBuf {
-    let d = fixtures::testdir::process_dir().join(format!("m17-{}-{name}", std::process::id()));
+    static SEQ: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+    let n = SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let d = fixtures::testdir::process_dir().join(format!("m17-{}-{n}-{name}", std::process::id()));
     let _ = std::fs::remove_dir_all(&d);
     std::fs::create_dir_all(&d).unwrap();
     d
@@ -178,12 +183,21 @@ impl Env {
     }
 
     pub fn spawn_library(&mut self) {
+        self.spawn_library_with(&[]);
+    }
+
+    /// The library with extra environment for it alone. Never `std::env::set_var` for a child: the tests of one
+    /// process run in parallel and another test would spawn its children with this one's values.
+    pub fn spawn_library_with(&mut self, envs: &[(&str, &std::ffi::OsStr)]) {
         let mut c = Command::new(env!("CARGO_BIN_EXE_hotclock"));
         c.arg("--global-config")
             .arg(&self.global)
             .arg("library")
             .stdout(Stdio::null())
             .stderr(Stdio::null());
+        for (k, v) in envs {
+            c.env(k, v);
+        }
         self.children.push(c.spawn().expect("spawn library"));
         self.wait_up(&self.lb());
     }
@@ -221,13 +235,19 @@ pub fn get(addr: &str, path: &str) -> Reply {
 }
 
 pub fn send(addr: &str, method: &str, path: &str, body: &Value) -> Reply {
+    send_within(addr, method, path, body, Duration::from_secs(15))
+}
+
+/// `send` for a request whose server side may take longer than 15 s by design (it waits for processes to stop and
+/// start): `limit` must be above the server's own bound, or the test reads a timeout instead of the server's answer.
+pub fn send_within(addr: &str, method: &str, path: &str, body: &Value, limit: Duration) -> Reply {
     client::request(
         addr,
         method,
         path,
         &[JSON],
         body.to_string().as_bytes(),
-        Duration::from_secs(15),
+        limit,
     )
     .unwrap()
 }

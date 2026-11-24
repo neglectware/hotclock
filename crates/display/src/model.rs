@@ -292,6 +292,10 @@ pub struct Dynamics {
     pub peak_hold: [Option<(f64, i64)>; 2],
     /// The ballisticked bar levels (used when the source is the sample peak; a PPM source is the frame's own).
     pub bar: [Option<f64>; 2],
+    /// The dBFS peak readout of each channel, `(dB, since)`: the frame's sample peak, the highest of the last
+    /// [`PEAK_READ_HOLD_MS`] held so a person can read it (what a mixer's peak meter shows). The twin of the web's
+    /// `Ballistics.PeakHold`.
+    pub peak_read: [Option<(f64, i64)>; 2],
     pub post: [f64; 64],
     pub pre: [f64; 64],
     pub cap_post: [(f64, i64); 64],
@@ -317,6 +321,7 @@ impl Default for Dynamics {
             meters: [Meter::default(), Meter::default()],
             peak_hold: [None, None],
             bar: [None, None],
+            peak_read: [None, None],
             post: [-90.0; 64],
             pre: [-90.0; 64],
             cap_post: [(-90.0, 0); 64],
@@ -327,6 +332,9 @@ impl Default for Dynamics {
         }
     }
 }
+
+/// How long the dBFS peak readout holds its highest value.
+pub const PEAK_READ_HOLD_MS: i64 = 1000;
 
 pub const SPECTRUM_FALL_DB_S: f64 = 15.0;
 pub const CAP_FALL_DB_S: f64 = 20.0;
@@ -353,6 +361,14 @@ impl Dynamics {
         self.last_ms = Some(now_ms);
         for i in 0..2 {
             let (ppm, peak) = (f.and_then(|f| f.ppm[i]), f.and_then(|f| f.peak[i]));
+            self.peak_read[i] = match (peak, self.peak_read[i]) {
+                (None, Some((_, at))) if now_ms - at <= PEAK_READ_HOLD_MS => self.peak_read[i],
+                (None, _) => None,
+                (Some(p), Some((v, at))) if p < v && now_ms - at <= PEAK_READ_HOLD_MS => {
+                    Some((v, at))
+                }
+                (Some(p), _) => Some((p, now_ms)),
+            };
             let before = self.meters[i].hold;
             self.meters[i].step(&self.params, ppm, peak, dt);
             self.bar[i] = self.meters[i].bar;

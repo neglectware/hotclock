@@ -26,7 +26,7 @@ impl Output for MockOut {
     fn size(&self) -> (i32, i32) {
         (1024, 600)
     }
-    fn present(&mut self, _c: &Canvas, _d: &[Rect]) -> Result<(), String> {
+    fn present(&mut self, _c: &Canvas, _d: &[Rect], _l: &common::night::Lut) -> Result<(), String> {
         self.presents.fetch_add(1, Ordering::SeqCst);
         Ok(())
     }
@@ -124,6 +124,8 @@ fn launch(
         force_view: None,
         tz_min: Some(0),
         product: "Product".into(),
+        force_night: None,
+        snapshot: None,
     };
     let factory = MockFactory {
         presents: presents.clone(),
@@ -781,7 +783,7 @@ fn the_screen_top_bar_endpoint_has_the_version_the_cpu_use_and_the_items_from_th
 
 #[test]
 fn the_native_split_bar_reads_the_library_and_follows_a_settings_change_and_the_lc_bar_shows() {
-    let (e, ita_port, _) = two_stations("m7bar");
+    let (e, ita_port, _) = two_stations("m7bar-native");
     let d = launch(
         &[("office", e.st_port), ("eve", ita_port)],
         e.lib_port,

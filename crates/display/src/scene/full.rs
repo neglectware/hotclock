@@ -759,6 +759,25 @@ fn meters(
         Align::Left,
         Some(w),
     );
+    // the sample peak of each channel in dBFS, held a second: what a mixer's input meter reads (lining up a mixer)
+    let pk_h = f.fs(22.0) * 5 / 4;
+    let py = y + f.fs(24.0) * 3 / 2;
+    if py + pk_h <= r.y + r.h {
+        let pk = |i: usize| fmt_lu(st.dynamics.peak_read[i].map(|x| x.0));
+        let (l, rr) = (pk(0), pk(1));
+        o.line(
+            x,
+            py,
+            pk_h,
+            &format!("PEAK L {l}  R {rr} dBFS"),
+            f.fs(22.0),
+            FontKind::Mono,
+            theme::DIM,
+            Align::Left,
+            Some(w),
+        );
+        rep.dbfs_peak = vec![l, rr];
+    }
     o.finish("meters", r, theme::BG)
 }
 

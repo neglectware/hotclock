@@ -12,6 +12,7 @@ pub mod kms;
 pub mod layout;
 pub mod model;
 pub mod net;
+pub mod night;
 pub mod output;
 pub mod render;
 pub mod scene;

@@ -362,7 +362,8 @@ mod tests {
                     "next_boundary",
                     "station_restart",
                     "library_restart",
-                    "display_restart"
+                    "display_restart",
+                    "display_switch"
                 ]
                 .contains(&d.apply),
                 "setting {} has an apply class the Help does not describe",

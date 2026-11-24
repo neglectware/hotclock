@@ -1185,7 +1185,7 @@ mod tests {
         let port = l.local_addr().unwrap().port();
         let h = std::thread::spawn(move || {
             let (s, _) = l.accept().unwrap();
-            session(s, reply_to_data)
+            session(s, reply_to_data, None)
         });
         (port, h)
     }
@@ -1198,14 +1198,16 @@ mod tests {
         let n2 = n.clone();
         std::thread::spawn(move || {
             for s in l.incoming().flatten() {
-                session(s, "250 ok\r\n");
-                n2.fetch_add(1, Ordering::SeqCst);
+                session(s, "250 ok\r\n", Some(&n2));
             }
         });
         (port, n)
     }
 
-    fn session(s: TcpStream, reply_to_data: &str) -> Vec<String> {
+    /// One SMTP session. `accepted` counts each mail as its data is accepted, before the reply: the client sees its
+    /// 250 only after the count, so a test that reads it once `handle` returns reads the final number (counting when
+    /// the session ended raced the test, which reads as soon as the client has its answer).
+    fn session(s: TcpStream, reply_to_data: &str, accepted: Option<&AtomicU64>) -> Vec<String> {
         {
             let mut w = s.try_clone().unwrap();
             let mut r = BufReader::new(s);
@@ -1222,6 +1224,9 @@ mod tests {
                 if in_data {
                     if t == "." {
                         in_data = false;
+                        if let Some(n) = accepted.filter(|_| reply_to_data.starts_with("250")) {
+                            n.fetch_add(1, Ordering::SeqCst);
+                        }
                         w.write_all(reply_to_data.as_bytes()).unwrap();
                     }
                     continue;

@@ -12,6 +12,7 @@ use crate::cvt;
 use crate::layout::Rect;
 use crate::output::Output;
 use common::config::{parse_mode, DisplayConfig};
+use common::night::Lut;
 use drm::buffer::DrmFourcc;
 use drm::control::{
     self, connector, crtc, dumbbuffer::DumbBuffer, dumbbuffer::DumbMapping, framebuffer,
@@ -85,6 +86,8 @@ pub struct Kms {
     flip_at: Option<Instant>,
     stale: [Vec<Rect>; 2],
     describe: String,
+    /// `1024x600@60`: the mode set, for the Settings page (through `output.json`).
+    mode_in_use: String,
     alarm: Option<String>,
     fallback_layout: bool,
     last_check: Instant,
@@ -352,6 +355,12 @@ impl Kms {
                     mode_str(&final_mode),
                     if custom { " (custom)" } else { "" }
                 ),
+                mode_in_use: format!(
+                    "{}x{}@{}",
+                    final_mode.size().0,
+                    final_mode.size().1,
+                    final_mode.vrefresh()
+                ),
                 alarm,
                 fallback_layout: fallback,
                 last_check: Instant::now(),
@@ -404,7 +413,7 @@ impl Output for Kms {
         (self.w, self.h)
     }
 
-    fn present(&mut self, canvas: &Canvas, damage: &[Rect]) -> Result<(), String> {
+    fn present(&mut self, canvas: &Canvas, damage: &[Rect], lut: &Lut) -> Result<(), String> {
         self.drain_events()?;
         for s in &mut self.stale {
             add_damage(s, damage);
@@ -420,7 +429,7 @@ impl Output for Kms {
         let pitch = self.slots[back].pitch;
         if let Some(m) = self.slots[back].map.as_mut() {
             for r in &rects {
-                canvas.copy_xrgb(*r, m.as_mut(), pitch);
+                canvas.copy_xrgb(*r, m.as_mut(), pitch, lut);
             }
         }
         match self
@@ -461,5 +470,13 @@ impl Output for Kms {
 
     fn describe(&self) -> String {
         format!("{} {}", self.conn_name, self.describe)
+    }
+
+    fn connector(&self) -> String {
+        self.conn_name.clone()
+    }
+
+    fn mode(&self) -> String {
+        self.mode_in_use.clone()
     }
 }

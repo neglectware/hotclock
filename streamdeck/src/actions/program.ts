@@ -70,6 +70,7 @@ export const programArm: ActionDef = {
 export const nextBlock: ActionDef = {
   id: "next-block",
   uses: "station",
+  view: { live: true },
   longPress: "extra",
   face(c) {
     const b = c.m.program?.nextBlock;

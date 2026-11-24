@@ -227,6 +227,25 @@ pub struct StartBlock {
     pub arm_window_min: i64,
     /// `fallback_start`: auto-start a `manual` block this many seconds after its nominal time.
     pub fallback_grace_s: Option<i64>,
+    /// The show time (4.5): the moment the program builds to, as a local time on T0's date. Blocks timed
+    /// `show` count from it, before or after. One run can move it (`POST /program/show-time`).
+    #[serde(default)]
+    pub show_time: Option<ShowTime>,
+}
+
+/// A program's show time: a local time of day (`HH:MM[:SS[.mmm]]`) on T0's date plus `day_offset` days.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ShowTime {
+    pub at: String,
+    #[serde(default)]
+    pub day_offset: i64,
+}
+
+impl ShowTime {
+    /// The instant of the show time for a run that started at `t0_ms`.
+    pub fn instant(&self, zone: &Zone, t0_ms: i64) -> Option<i64> {
+        common::timespec::local_on_t0_date(zone, t0_ms, &self.at, self.day_offset)
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -482,6 +501,21 @@ fn parse_start(p: &Value) -> Result<StartBlock, String> {
         Some("absolute") => Anchor::Absolute,
         Some(a) => return Err(format!("unknown anchor `{a}`")),
     };
+    let show_time = match p.get("show_time") {
+        None | Some(Value::Null) => None,
+        Some(Value::String(at)) if at.trim().is_empty() => None,
+        Some(Value::String(at)) => {
+            common::timespec::parse_time_of_day(at).map_err(|e| format!("show_time: {e}"))?;
+            Some(ShowTime {
+                at: at.trim().to_string(),
+                day_offset: p
+                    .get("show_day_offset")
+                    .and_then(Value::as_i64)
+                    .unwrap_or(0),
+            })
+        }
+        Some(_) => return Err("show_time is a local time of day (HH:MM[:SS])".into()),
+    };
     let how = match p.get("how").and_then(Value::as_str) {
         None => StartHow::Segue,
         Some(h) => StartHow::parse(h).ok_or_else(|| format!("unknown how `{h}`"))?,
@@ -512,6 +546,7 @@ fn parse_start(p: &Value) -> Result<StartBlock, String> {
             .get("fallback_start")
             .filter(|f| f.get("enabled").and_then(Value::as_bool) == Some(true))
             .map(|f| f.get("grace_s").and_then(Value::as_i64).unwrap_or(0)),
+        show_time,
     })
 }
 
@@ -1035,12 +1070,34 @@ impl Playlist {
         })
     }
 
+    /// A program: a sequential playlist with blocks (a weekly show). It runs from a program start, which gives
+    /// it its T0; a plain playlist switch must not load one (that started a copy of a show's blocks on eve,
+    /// 2026-10-12: its OSC unmute at once and its fade, mute and bed 15 minutes later).
+    pub fn is_program(&self) -> bool {
+        self.mode == Mode::Sequential && self.blocks().next().is_some()
+    }
+
+    /// Why a plain switch (or a one-time scheduled change) may not load this playlist, if it may not.
+    pub fn refuse_switch(&self) -> Option<String> {
+        self.is_program().then(|| {
+            format!(
+                "`{}` is a program (a sequential playlist with blocks): start it with Start Playlist as Program",
+                self.name
+            )
+        })
+    }
+
     /// The `start` block, when the playlist has one.
     pub fn start_block(&self) -> Option<(&Block, &StartBlock)> {
         self.blocks().find_map(|b| match &b.kind {
             BlockKind::Start(s) => Some((b, s)),
             _ => None,
         })
+    }
+
+    /// The show time set on the playlist's `start` block, if any.
+    pub fn show_time(&self) -> Option<&ShowTime> {
+        self.start_block().and_then(|(_, s)| s.show_time.as_ref())
     }
 }
 
@@ -1557,6 +1614,15 @@ impl Programming {
                 _ => {}
             }
             let Some(t) = &b.timed else { continue };
+            if t.spec.needs_show() && p.show_time().is_none() {
+                bad(
+                    b,
+                    true,
+                    "no_show_time",
+                    "this block is timed from the show time, and the playlist's start block has none"
+                        .into(),
+                );
+            }
             if let common::timespec::When::Relative { offset_ms } = &t.spec.when {
                 if *offset_ms < 0 {
                     bad(
@@ -1604,6 +1670,12 @@ impl Programming {
                             .ok()
                             .map(|ms| day_offset * 86_400_000 + ms + 1_000_000_000_000)
                     }
+                    // A show time is a time of day too: compared with the playlist's other times of day.
+                    common::timespec::When::Show { offset_ms } => p.show_time().and_then(|st| {
+                        common::timespec::parse_time_of_day(&st.at).ok().map(|ms| {
+                            st.day_offset * 86_400_000 + ms + offset_ms + 1_000_000_000_000
+                        })
+                    }),
                     _ => None,
                 };
                 if let Some(k) = key {

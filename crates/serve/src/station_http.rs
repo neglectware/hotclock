@@ -46,6 +46,40 @@ fn parse_at(v: &Value) -> Result<At, Response> {
     }
 }
 
+/// The body of `POST /program/show-time`: exactly one of `at` (RFC 3339), `local` (`HH:MM[:SS]` on the date
+/// of the program's T0), `delay_s` (seconds from where it is now, negative is earlier) or `reset: true`.
+fn show_time_set(b: &Value) -> Result<station::acts::ShowTimeSet, Response> {
+    use station::acts::ShowTimeSet;
+    let given = ["at", "local", "delay_s", "reset"]
+        .iter()
+        .filter(|k| !b[**k].is_null())
+        .count();
+    if given != 1 {
+        return Err(bad(
+            "give exactly one of `at` (a time), `local` (HH:MM[:SS]), `delay_s` or `reset: true`",
+        ));
+    }
+    if let Some(t) = b["at"].as_str() {
+        return crate::util::parse_time(t)
+            .map(ShowTimeSet::At)
+            .ok_or_else(|| bad("`at` must be a time (RFC 3339)"));
+    }
+    if let Some(l) = b["local"].as_str() {
+        return common::timespec::parse_time_of_day(l)
+            .map(|_| ShowTimeSet::Local(l.trim().to_string()))
+            .map_err(|e| bad(&format!("`local`: {e}")));
+    }
+    if let Some(d) = b["delay_s"].as_f64() {
+        return Ok(ShowTimeSet::Delay((d * 1000.0).round() as i64));
+    }
+    if b["reset"].as_bool() == Some(true) {
+        return Ok(ShowTimeSet::Reset);
+    }
+    Err(bad(
+        "`at` is a string, `local` a string, `delay_s` a number and `reset` true",
+    ))
+}
+
 fn reply_of(r: ApiReply) -> Response {
     match r {
         ApiReply::Done { mut state, extra } => {
@@ -116,6 +150,34 @@ impl StationHandler {
         })
     }
 
+    /// A playlist's name and the station it is tied to, read from the library file now. None when it is tied to
+    /// no station, or the library cannot be read (the station's own check still applies then).
+    fn program_station(&self, playlist_id: i64) -> Option<(String, String)> {
+        use rusqlite::{Connection, OpenFlags, OptionalExtension};
+        let path = &self.api.opts.library_db;
+        let read = || -> rusqlite::Result<Option<(String, Option<String>)>> {
+            let c = Connection::open_with_flags(path, OpenFlags::SQLITE_OPEN_READ_ONLY)?;
+            c.busy_timeout(Duration::from_millis(500))?;
+            c.query_row(
+                "SELECT name, station_id FROM playlists WHERE id = ?1",
+                [playlist_id],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .optional()
+        };
+        match read() {
+            Ok(Some((name, Some(owner)))) if !owner.is_empty() => Some((name, owner)),
+            Ok(_) => None,
+            Err(e) => {
+                tracing::warn!(
+                    "cannot read the station of playlist {playlist_id} from {}: {e}",
+                    path.display()
+                );
+                None
+            }
+        }
+    }
+
     /// `POST /api/v1/program/start`: `{playlist_id, t0?: "now" | "nominal" | RFC 3339, how?: "now" | "segue" | "end"}`.
     fn program_start(&self, b: &Value) -> Response {
         let Some(playlist_id) = b["playlist_id"].as_i64() else {
@@ -142,6 +204,26 @@ impl StationHandler {
                 );
             }
             _ => {}
+        }
+        // The program's station, read from the library at the press. The station's own copy of the playlists is
+        // refreshed every 2 s and checked again by the station; on the box (2026-10-12) a tie made in the playlist
+        // editor did not reach that copy, and office started eve's program.
+        if let Some((name, owner)) = self.program_station(playlist_id) {
+            if owner != self.api.opts.name {
+                tracing::warn!(
+                    playlist_id,
+                    owner,
+                    "refused a start of `{name}`: the library ties it to station {owner}"
+                );
+                return Response::error(
+                    409,
+                    "refused",
+                    &format!(
+                        "`{name}` is a program of station {owner}; this is station {}",
+                        self.api.opts.name
+                    ),
+                );
+            }
         }
         let t0 = match b["t0"].as_str() {
             None | Some("now") => station::program::T0Req::Now,
@@ -1070,6 +1152,14 @@ impl StationHandler {
                 }),
             },
             (["program", "continue"], "POST") => self.act(ApiOp::ProgramContinue),
+            (["program", "show-time"], "POST") => match req.json() {
+                Err(r) => r,
+                Ok(b) => match show_time_set(&b) {
+                    Ok(set) => self.act(ApiOp::ProgramShowTime { set }),
+                    Err(r) => r,
+                },
+            },
+            (["program", "keep-loaded"], "POST") => self.read(ApiOp::ProgramKeepLoaded),
             (["program", action @ ("arm" | "disarm")], "POST") => match req.json() {
                 Err(r) => r,
                 Ok(b) => match b["playlist_id"].as_i64() {
@@ -1226,6 +1316,7 @@ pub fn known_shape(path: &str) -> bool {
         "api/v1/program/state",
         "api/v1/program/start",
         "api/v1/program/abort",
+        "api/v1/program/keep-loaded",
         "api/v1/program/continue",
         "api/v1/program/arm",
         "api/v1/program/disarm",

@@ -4,6 +4,7 @@ import streamDeck, {
   type KeyDownEvent,
   type KeyUpEvent,
   type SendToPluginEvent,
+  type TitleParametersDidChangeEvent,
   type WillAppearEvent,
   type WillDisappearEvent,
 } from "@elgato/streamdeck";
@@ -48,6 +49,8 @@ function makeAction(def: ActionDef) {
       const c = new KeyController(
         def,
         {
+          setState: (n) => action.setState(n),
+          setTitle: (t) => action.setTitle(t),
           setImage: (u) => action.setImage(u),
           showOk: () => action.showOk(),
           showAlert: () => action.showAlert(),
@@ -63,6 +66,11 @@ function makeAction(def: ActionDef) {
     override onWillDisappear(ev: WillDisappearEvent<KeySettings>): void {
       controllers.get(ev.action.id)?.dispose();
       controllers.delete(ev.action.id);
+    }
+
+    // The person's own title (the app's Title field): the key's label, in the app's font, size, colour and position.
+    override onTitleParametersDidChange(ev: TitleParametersDidChangeEvent<KeySettings>): void {
+      controllers.get(ev.action.id)?.titleChanged(ev.payload.title);
     }
 
     override onDidReceiveSettings(ev: DidReceiveSettingsEvent<KeySettings>): void {
@@ -103,7 +111,7 @@ streamDeck.system.onSystemDidWakeUp(() => {
   }
 });
 
-// Redraw four times a second: the countdowns tick between the box's events. A key sends a picture only when it changed, at most twice a second.
+// Redraw four times a second: the countdowns tick between the box's events. A key tells Stream Deck only what changed, at most twice a second.
 setInterval(() => {
   for (const c of controllers.values()) c.refresh();
 }, 250);

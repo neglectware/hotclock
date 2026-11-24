@@ -128,10 +128,16 @@ describe("property inspector requests", () => {
   it("lists playlists, items and a playlist's blocks", async () => {
     const { env: e } = env({
       "/api/v1/playlists/3": { entries: [{ type: "item", item: {} }, { type: "block", block: { id: 21, name: "Top ID", kind: "insert" } }] },
-      "/api/v1/playlists": { playlists: [{ id: 3, name: "Eve", station_id: null }] },
+      "/api/v1/playlists": { playlists: [
+        { id: 3, name: "Eve", station_id: null, mode: "sequential", blocks: 6 },
+        { id: 4, name: "Album", station_id: null, mode: "sequential", blocks: 0 },
+        { id: 5, name: "Rotation", station_id: null, mode: "shuffle", blocks: 1 },
+      ] },
       "/api/v1/items": { items: [{ id: 9, title: "Station ID", artist: "", duration_ms: 4200, category: "id" }] },
     });
-    expect(await handlePiRequest(e, { cmd: "playlists" })).toMatchObject({ ok: true, playlists: [{ id: 3, name: "Eve" }] });
+    // a program is a sequential playlist with blocks; a playlist switch never lists one
+    expect(await handlePiRequest(e, { cmd: "playlists" })).toMatchObject({ ok: true, playlists: [
+      { id: 3, name: "Eve", program: true }, { id: 4, name: "Album", program: false }, { id: 5, name: "Rotation", program: false }] });
     expect(await handlePiRequest(e, { cmd: "items", q: "station" })).toMatchObject({ ok: true, items: [{ id: 9, title: "Station ID", durationMs: 4200 }] });
     expect(await handlePiRequest(e, { cmd: "blocks", playlistId: 3 })).toMatchObject({ ok: true, blocks: [{ id: 21, name: "Top ID" }] });
   });

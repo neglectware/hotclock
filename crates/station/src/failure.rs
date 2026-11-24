@@ -287,7 +287,7 @@ pub(crate) fn starve_verdict(elapsed: u64, progress: u64, give_up: u64) -> Optio
     Some(progress * 2 < elapsed)
 }
 
-fn markers_ok(i: &Item) -> bool {
+pub(crate) fn markers_ok(i: &Item) -> bool {
     let m = &i.markers;
     m.cue_in >= 0
         && m.cue_in < m.segue
@@ -1199,8 +1199,15 @@ impl Station {
         // Playing and not waiting on purpose (assist, or a hold, whose item has had its end): the output
         // should sound. That includes a station with no voice at all (nothing could be started, the queue
         // ran dry): dead air is dead air, and it is exactly what the escalation is for.
-        let expect_sound =
-            self.transport == Transport::Playing && !(self.assist && self.finished_last);
+        // A program ended on purpose ("End program, music continues") with nothing left to play: the station
+        // went quiet as asked, it is not dead air (it played the emergency playlist before).
+        let closed_and_done = self.sched.st.program_closed
+            && self.sched.st.program.is_none()
+            && self.sched.head().is_none()
+            && self.cond.live_voices() == 0;
+        let expect_sound = self.transport == Transport::Playing
+            && !(self.assist && self.finished_last)
+            && !closed_and_done;
         let window = self.silence_window();
         if !expect_sound || window.is_none() {
             self.fail.armed_frame = self.now_frame;
@@ -1487,6 +1494,8 @@ impl Station {
             || self.transport != crate::runtime::Transport::Playing
             || self.armed_stop.is_some()
             || self.program_start_at.is_some()
+            // a program ended on purpose with nothing to go on with (not a scheduler that lost its program)
+            || (self.sched.st.program.is_none() && self.sched.st.program_closed)
             || self
                 .sched
                 .st

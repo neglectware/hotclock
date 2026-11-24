@@ -120,17 +120,25 @@ describe("property inspector", () => {
     expect(sd.sent.filter((m) => m.payload?.cmd === "stations").length).toBeGreaterThan(1);
   });
 
-  it("the key face: a label, a colour and the tint are saved with the key", async () => {
-    const { doc, sd } = open("program-start", { station: "eve" });
-    type(doc, "f-label", "SHOW");
-    const c = doc.getElementById("f-color") as HTMLInputElement;
-    c.value = "#ff8800";
-    c.dispatchEvent(new (doc.defaultView as unknown as { Event: typeof Event }).Event("input", { bubbles: true }));
-    const t = doc.getElementById("f-tint") as HTMLInputElement;
-    t.checked = true;
-    change(doc, t);
-    await sleep(300);
-    expect(sd.sent.at(-1)).toMatchObject({ event: "setSettings", payload: { station: "eve", label: "SHOW", labelColor: "#ff8800", tintActive: true } });
+  it("Start / Switch Playlist and Schedule Change never list a program, and say to use Start Playlist as Program", async () => {
+    for (const action of ["switch-playlist", "schedule-change"]) {
+      const { doc, sd } = open(action, { station: "eve", stationPort: 8302 });
+      sd.deliver({ event: "didReceiveGlobalSettings", payload: { settings: { host: "radio.example" } } });
+      await sleep(5);
+      const ask = sd.sent.filter((m) => m.event === "sendToPlugin" && m.payload.cmd === "playlists").at(-1);
+      sd.deliver({ event: "sendToPropertyInspector", payload: { reply: "playlists", tag: ask.payload.tag, ok: true, playlists: [
+        { id: 1, name: "Eve Monday", station: "eve", program: true }, { id: 2, name: "Elevator", station: null, program: false }] } });
+      const names = [...(doc.querySelector('[data-field="playlist"] select') as HTMLSelectElement).options].map((o) => o.textContent);
+      expect(names).toEqual(["Choose a playlist", "Elevator"]);
+      expect(doc.body.textContent).toContain("Use Start Playlist as Program");
+    }
+  });
+
+  it("has no key face section: the label and the pictures are the app's own Title and state images", () => {
+    const { doc } = open("program-start", { station: "eve" });
+    expect(doc.getElementById("face-section")).toBeNull();
+    expect(doc.getElementById("f-label")).toBeNull();
+    expect(doc.getElementById("title-hint")?.textContent).toContain("Title");
   });
 
   it("shows the schedule field that goes with the chosen mode", async () => {

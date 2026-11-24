@@ -40,7 +40,7 @@ export function textFace(o: TextFaceOptions): Face {
 
 /** The key of an action that has no playlist, item or block picked yet. */
 export function unsetFace(tag: string, what: string, glyph?: Glyph): Face {
-  return textFace({ tag, glyph, main: "SET UP", mainColor: COLORS.amber, mainSize: 24, sub: what, subColor: COLORS.text });
+  return { ...textFace({ tag, glyph, main: "SET UP", mainColor: COLORS.amber, mainSize: 24, sub: what, subColor: COLORS.text }), lit: false, say: `SET UP\n${what}` };
 }
 
 export const str = (v: unknown): string => (typeof v === "string" ? v : "");

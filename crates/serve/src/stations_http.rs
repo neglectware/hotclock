@@ -85,13 +85,29 @@ impl LibraryApi {
         (st::unit_state(unit).as_deref() == Some("active")).then(|| st::restart_unit(unit).is_ok())
     }
 
-    /// Wait for a station's `/health` to answer 200. `Err` carries the reason.
-    fn wait_healthy(&self, unit: &str, addr: &str, limit: Duration) -> Result<f64, String> {
+    /// Wait for the station `name` to answer 200 on `/health` at `addr`. A 200 from another station (or another
+    /// program) on that port is not this one: it never bound the port, and the wait goes on until the unit fails or
+    /// the time is up. `Err` carries the reason.
+    fn wait_healthy(
+        &self,
+        name: &str,
+        unit: &str,
+        addr: &str,
+        limit: Duration,
+    ) -> Result<f64, String> {
         let t = Instant::now();
         let mut last = String::from("no answer");
         while t.elapsed() < limit {
             match client::request(addr, "GET", "/health", &[], b"", Duration::from_secs(2)) {
-                Ok(r) if r.status == 200 => return Ok(t.elapsed().as_secs_f64()),
+                Ok(r) if r.status == 200 => match r.json()["station"].as_str() {
+                    Some(s) if s == name => return Ok(t.elapsed().as_secs_f64()),
+                    other => {
+                        last = format!(
+                            "the port is answered by {}",
+                            other.map_or("something else".into(), |s| format!("station {s}"))
+                        )
+                    }
+                },
                 Ok(r) => last = format!("/health answered {}", r.status),
                 Err(e) => last = format!("no answer ({e})"),
             }
@@ -413,7 +429,7 @@ impl LibraryApi {
         let unit = sa::unit_of(&spec.name);
         let addr = format!("127.0.0.1:{}", spec.port);
         let started = st::unit_action("start", &unit)
-            .and_then(|()| self.wait_healthy(&unit, &addr, start_timeout()));
+            .and_then(|()| self.wait_healthy(&spec.name, &unit, &addr, start_timeout()));
         let secs = match started {
             Ok(s) => s,
             Err(e) => {
@@ -702,11 +718,12 @@ impl LibraryApi {
                 if was_active {
                     let unit = sa::unit_of(old);
                     let addr = self.addr_of_file(old);
-                    restored = json!(st::unit_action("start", &unit)
-                        .and_then(|()| addr
-                            .ok_or_else(|| "no address".to_string())
-                            .and_then(|a| self.wait_healthy(&unit, &a, Duration::from_secs(30))))
-                        .is_ok());
+                    restored =
+                        json!(st::unit_action("start", &unit)
+                            .and_then(|()| addr.ok_or_else(|| "no address".to_string()).and_then(
+                                |a| self.wait_healthy(old, &unit, &a, Duration::from_secs(30))
+                            ))
+                            .is_ok());
                 }
                 let mut v = json!({"error": {"code": "rename_failed", "message": format!("the rename failed at: {e}. Everything was put back.")},
                     "undone": undone, "old_station_running_again": restored});
@@ -827,7 +844,7 @@ impl LibraryApi {
             st::unit_action("stop", &nu)
         });
         st::unit_action("start", &new_unit).map_err(|e| format!("starting {new_unit}: {e}"))?;
-        self.wait_healthy(&new_unit, &addr, start_timeout())
+        self.wait_healthy(new, &new_unit, &addr, start_timeout())
             .map_err(|e| format!("{new_unit} did not become healthy: {e}"))
     }
 

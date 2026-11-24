@@ -110,3 +110,60 @@ fn delete_both_databases_restore_from_the_snapshots_and_the_station_resumes_its_
     let s = get(&e.st(), "/api/v1/state").json();
     assert!(s["now"]["title"].is_string(), "{s}");
 }
+
+/// A restore runs as root; every file and directory it writes or creates under the data directory (the
+/// databases, their `-wal`/`-shm`, the station's `state.db.lock`) ends up
+/// owned like the rest of the state tree, or the station fails with "Permission denied". Needs root to chown.
+#[test]
+fn a_restore_leaves_what_it_writes_owned_by_the_owner_of_the_state_tree() {
+    use std::os::unix::fs::MetadataExt;
+    if unsafe { libc::geteuid() } != 0 {
+        eprintln!("skipped: needs root (chown)");
+        return;
+    }
+    let mut e = Env::new("restore-owner", &Opts::default());
+    e.spawn_station(&[]);
+    playing(&e);
+    std::thread::sleep(Duration::from_millis(1500));
+    assert!(hc(&e, &["backup"]).status.success());
+    let mut child = e.children.remove(0);
+    child.kill().unwrap();
+    child.wait().unwrap();
+    drop(std::mem::replace(
+        &mut e.lib,
+        library::Library::open(library::Paths::from_data_dir(&e.dir.join("scratch"))).unwrap(),
+    ));
+    // The state tree belongs to a service user; the station's database and its lock are gone.
+    let (uid, gid) = (4242, 4243);
+    fn walk(p: &std::path::Path, f: &mut dyn FnMut(&std::path::Path)) {
+        f(p);
+        if p.is_dir() && !p.is_symlink() {
+            for x in std::fs::read_dir(p).unwrap().flatten() {
+                walk(&x.path(), f);
+            }
+        }
+    }
+    for f in ["state.db", "state.db-wal", "state.db-shm", "state.db.lock"] {
+        let _ = std::fs::remove_file(e.data.join("stations/office").join(f));
+    }
+    walk(&e.data, &mut |p| {
+        std::os::unix::fs::lchown(p, Some(uid), Some(gid)).unwrap()
+    });
+    let out = hc(&e, &["restore", "--yes", "--no-service-check"]);
+    assert!(
+        out.status.success(),
+        "{}{}",
+        String::from_utf8_lossy(&out.stdout),
+        String::from_utf8_lossy(&out.stderr)
+    );
+    assert!(e.data.join("stations/office/state.db").exists());
+    assert!(e.data.join("stations/office/state.db.lock").exists());
+    let mut wrong = vec![];
+    walk(&e.data, &mut |p| {
+        let m = std::fs::symlink_metadata(p).unwrap();
+        if (m.uid(), m.gid()) != (uid, gid) {
+            wrong.push(format!("{} {}:{}", p.display(), m.uid(), m.gid()));
+        }
+    });
+    assert!(wrong.is_empty(), "owned by someone else: {wrong:?}");
+}

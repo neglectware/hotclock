@@ -107,6 +107,19 @@ const fn fs(
     }
 }
 
+/// An on/off setting inside a block (not the block's own switch).
+const fn flag(key: &'static str, label: &'static str, d: bool, help: &'static str) -> Param {
+    Param {
+        key,
+        label,
+        kind: Kind::Bool,
+        default: Def::B(d),
+        unit: "",
+        help,
+        step: 0.0,
+    }
+}
+
 const fn int(
     key: &'static str,
     label: &'static str,
@@ -289,8 +302,11 @@ pub const BLOCKS: &[BlockDef] = &[
             f("detector_ms", "Fast detector", 50.0, 2000.0, 400.0, "ms", "The window of the fast level, which sees a fade and an onset. The 3 s program level sets the long-term target."),
             f("program_ms", "Program level", 500.0, 10000.0, 3000.0, "ms", "The window of the slow level that sets the long-term target."),
             f("gate_db", "Gate", -60.0, -10.0, -35.0, "dB re target", "Below this level (relative to the target) the gain holds its value: silence and room tone are not turned up."),
-            f("fast_attack_ms", "Fast attack", 0.0, 200.0, 10.0, "ms", "The time the gain takes to fall 95 percent of the way when a loud onset arrives. 0 turns the fast clamp off."),
+            flag("fast_clamp", "Fast clamp", true, "On a loud onset, the gain falls in the fast attack time instead of at the down rate. Off: the gain always falls at the down rate."),
+            f("fast_attack_ms", "Fast attack", 2.0, 200.0, 10.0, "ms", "The time the fast clamp takes to pull the gain 95 percent of the way down. A longer time is gentler. The clamp is worked out every 2 ms, so 2 ms is the shortest."),
             f("fast_trigger_db", "Fast trigger", 1.0, 24.0, 6.0, "dB", "The fast clamp acts when the output would be this far over the target."),
+            f("hold_s", "Hold", 0.0, 10.0, 0.0, "s", "After the gain falls (at the down rate or by the fast clamp), it does not rise again for this long after the last fall. A snare hit after a quiet passage pulls the gain down, and it does not climb back between the hits. 0 lets it rise at once."),
+            f("ratio", "Ratio", 1.0, 10.0, 1.0, "", "How much of the distance to the target the AGC corrects: 1 corrects all of it, 2 half of it, 4 a quarter. It applies to the slow gain and the fast clamp. Max gain and max reduction still bound the gain."),
         ],
     },
     BlockDef {
@@ -502,6 +518,7 @@ impl ChainConfig {
     pub fn apply_block(&mut self, block: &str, obj: &Map<String, Value>) -> Result<(), String> {
         let def = self::block(block).ok_or_else(|| format!("no block `{block}`"))?;
         let mut cur = self.obj(block).clone();
+        let obj = &migrate_params(block, obj);
         for (k, v) in obj {
             let k = legacy_key(block, k);
             if k == "enabled" {
@@ -676,6 +693,7 @@ impl ChainConfig {
     ) -> Result<(), String> {
         let def = block(block_key).ok_or_else(|| format!("no block `{block_key}`"))?;
         let mut cur = self.obj(block_key).clone();
+        let obj = &migrate_params(block_key, obj);
         for (k, v) in obj {
             let k = legacy_key(block_key, k);
             if k == "enabled" {
@@ -730,11 +748,26 @@ pub fn legacy_key<'a>(block_key: &str, key: &'a str) -> &'a str {
     }
 }
 
-/// A block's settings with the keys of older releases renamed (a user preset saved before the change).
+/// A block's settings with the keys of older releases renamed (a user preset saved before the change), and the
+/// values of older releases read as they were meant.
 pub fn migrate_params(block_key: &str, o: &Map<String, Value>) -> Map<String, Value> {
-    o.iter()
+    let mut out: Map<String, Value> = o
+        .iter()
         .map(|(k, v)| (legacy_key(block_key, k).to_string(), v.clone()))
-        .collect()
+        .collect();
+    if block_key == "agc" {
+        // Before the fast clamp had its own switch, a fast attack of 0 ms turned it off, and the clamp, worked out
+        // every 2 ms, could not act faster than that.
+        if let Some(ms) = out.get("fast_attack_ms").and_then(Value::as_f64) {
+            if ms <= 0.0 {
+                out.insert("fast_attack_ms".into(), json!(10.0));
+                out.entry("fast_clamp").or_insert(json!(false));
+            } else if ms < 2.0 {
+                out.insert("fast_attack_ms".into(), json!(2.0));
+            }
+        }
+    }
+    out
 }
 
 /// A whole chain's settings with every block migrated.
@@ -1275,6 +1308,44 @@ mod tests {
                     .unwrap_or_else(|e| panic!("{}/{}: {e}", b.key, p.name));
             }
         }
+    }
+
+    #[test]
+    fn a_fast_attack_of_0_from_before_the_switch_is_the_fast_clamp_off() {
+        let d = ChainConfig::default();
+        assert!(d.flag("agc", "fast_clamp"));
+        assert_eq!(d.num("agc", "fast_attack_ms"), 10.0);
+        assert_eq!(d.num("agc", "hold_s"), 0.0);
+        assert_eq!(d.num("agc", "ratio"), 1.0);
+        // a station file's [chain.agc] table
+        let file = json!({"agc": {"enabled": true, "fast_attack_ms": 0.0}});
+        let c = ChainConfig::resolve("bypass", file.as_object().unwrap()).unwrap();
+        assert!(!c.flag("agc", "fast_clamp"));
+        assert_eq!(c.num("agc", "fast_attack_ms"), 10.0);
+        // a request, or a user preset of the block
+        let mut c = ChainConfig::default();
+        c.apply_block("agc", json!({"fast_attack_ms": 0.5}).as_object().unwrap())
+            .unwrap();
+        assert!(c.flag("agc", "fast_clamp"));
+        assert_eq!(c.num("agc", "fast_attack_ms"), 2.0);
+        let p = migrate_params("agc", json!({"fast_attack_ms": 0}).as_object().unwrap());
+        assert_eq!(p["fast_clamp"], json!(false));
+        assert_eq!(p["fast_attack_ms"], json!(10.0));
+        // a whole-chain preset; an explicit switch wins
+        let m = migrate_chain(&json!({"agc": {"fast_attack_ms": 0.0, "fast_clamp": true}}));
+        assert_eq!(m["agc"]["fast_clamp"], json!(true));
+        assert_eq!(m["agc"]["fast_attack_ms"], json!(10.0));
+        // new values out of range are refused
+        let mut c = ChainConfig::default();
+        assert!(c
+            .apply_block("agc", json!({"hold_s": 11.0}).as_object().unwrap())
+            .is_err());
+        assert!(c
+            .apply_block("agc", json!({"ratio": 0.5}).as_object().unwrap())
+            .is_err());
+        assert!(c
+            .apply_block("agc", json!({"fast_attack_ms": 201.0}).as_object().unwrap())
+            .is_err());
     }
 
     #[test]

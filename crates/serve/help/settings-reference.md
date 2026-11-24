@@ -34,6 +34,14 @@ The buffer of the card is `period_frames` times `periods` frames. At 48000 Hz th
 
 `formats` is the list of sample formats to try, best first. `rate` is 44100 or 48000. Set it to the rate that the card runs at. See [Troubleshooting](troubleshooting#a-station-is-silent-or-says-critical).
 
+### `listen`
+
+The address and port of the station's own API, such as `0.0.0.0:8301`. The stream uses the same port. Each station needs its own port. Change it only when another program uses the port. A change needs a restart of the station.
+
+### `stopped_is_normal`
+
+The default is off. Turn it on for a station that runs only for a show and is stopped the rest of the time. Then an empty queue is not an emergency. The station stays silent. It raises no `queue_starved` alert and does not play the emergency playlist. Leave it off for a station that runs all day.
+
 ### `default_playlist` and `emergency_playlist`
 
 `default_playlist` matters only for a station with no history. A station always resumes the playlist it was on when it stopped, even after a crash. To move a station that has a history to a different playlist, switch its playlist on [On Air](on-air#switch-playlist).
@@ -63,6 +71,18 @@ The number of seconds that the station must be on air and healthy before the `re
 ### `rate_trim_ppm`
 
 A small correction of the clock of a station with no sound card, in parts per million. Use it only after you measure a steady difference with the program that reads the stream. See [The stream and OBS](stream-obs#latency-and-clocks).
+
+### `data_dir`, `stations_dir` and `run_dir`
+
+These keys set where the box keeps its files. The defaults are `/var/lib/hotclock`, `/etc/hotclock/stations` and `/run/hotclock`. The package sets up these folders, so leave the keys as they are. If you move a folder, move its files first. Then restart the library service and every station.
+
+### `brand.display_name`
+
+The product name that the web pages show. The default is empty, so the pages show the built-in name. Set it to show your own name. A change needs a restart of the library service.
+
+### `display.default_view`
+
+The view that the status display shows until the library service tells it the view. The default is `single`. You switch the view itself on [On Air](on-air), on the Stream Deck or on the display. Change this key only if the display should start in another view.
 
 ### `time_zone`
 

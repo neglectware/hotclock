@@ -6,6 +6,7 @@
 //! (damage-only redraw, 11.1), so the same description serves the screen and the screenshots.
 
 use crate::layout::Rect;
+use common::night::Lut;
 use fontdue::{Font, FontSettings};
 use std::collections::HashMap;
 use std::hash::{Hash, Hasher};
@@ -767,10 +768,15 @@ impl Canvas {
         self.pm.data()
     }
 
-    /// Copy `r` into an XRGB8888 buffer (little-endian: B, G, R, X) with row pitch `pitch` bytes. The destination
-    /// is write-combined video memory on the real output, so each row is converted in ordinary memory first and
-    /// then stored in one piece: byte stores straight into it cost about 25 times more.
-    pub fn copy_xrgb(&self, r: Rect, dst: &mut [u8], pitch: usize) {
+    /// Copy `r` into an XRGB8888 buffer (little-endian: B, G, R, X) with row pitch `pitch` bytes, through the
+    /// night color table (`lut`, the last step before the frame is shown; skipped when it is the identity). The
+    /// destination is write-combined video memory on the real output, so each row is converted in ordinary memory
+    /// first and then stored in one piece: byte stores straight into it cost about 25 times more.
+    ///
+    /// The canvas itself is never tinted: the damage tracking compares it with what was drawn before, and a zone
+    /// blends its text onto it. So the table is applied on the way out, here and in [`Canvas::rgba_out`], to every
+    /// pixel that leaves; a new table damages the whole screen (the display does that), so the panel never shows two.
+    pub fn copy_xrgb(&self, r: Rect, dst: &mut [u8], pitch: usize, lut: &Lut) {
         let w = self.pm.width() as usize;
         let src = self.pm.data();
         let r = r.clip(&Rect::new(0, 0, self.width(), self.height()));
@@ -780,21 +786,39 @@ impl Canvas {
         let mut row = vec![0u8; r.w as usize * 4];
         for y in r.y..r.bottom() {
             let s = (y as usize * w + r.x as usize) * 4;
-            for (d, px) in row
-                .chunks_exact_mut(4)
-                .zip(src[s..s + r.w as usize * 4].chunks_exact(4))
-            {
-                d.copy_from_slice(&[px[2], px[1], px[0], 0]);
+            let line = src[s..s + r.w as usize * 4].chunks_exact(4);
+            if lut.is_identity() {
+                for (d, px) in row.chunks_exact_mut(4).zip(line) {
+                    d.copy_from_slice(&[px[2], px[1], px[0], 0]);
+                }
+            } else {
+                for (d, px) in row.chunks_exact_mut(4).zip(line) {
+                    let (r, g, b) = lut.map(px[0], px[1], px[2]);
+                    d.copy_from_slice(&[b, g, r, 0]);
+                }
             }
             let d = y as usize * pitch + r.x as usize * 4;
             dst[d..d + row.len()].copy_from_slice(&row);
         }
     }
 
+    /// The whole frame as RGBA, through the night color table: what the panel shows (the snapshots).
+    pub fn rgba_out(&self, lut: &Lut) -> Vec<u8> {
+        let mut px = self.pm.data().to_vec();
+        lut.apply_rgba(&mut px);
+        px
+    }
+
+    /// The canvas as drawn, with no night color (the layout tests).
     pub fn save_png(&self, path: &std::path::Path) -> Result<(), String> {
-        let img =
-            image::RgbaImage::from_raw(self.pm.width(), self.pm.height(), self.pm.data().to_vec())
-                .ok_or("bad buffer")?;
+        self.save_png_with(path, &Lut::identity())
+    }
+
+    /// The frame as the panel shows it, through the night color table (`HOTCLOCK_DISPLAY_SNAPSHOT`,
+    /// `--render-png`).
+    pub fn save_png_with(&self, path: &std::path::Path, lut: &Lut) -> Result<(), String> {
+        let img = image::RgbaImage::from_raw(self.pm.width(), self.pm.height(), self.rgba_out(lut))
+            .ok_or("bad buffer")?;
         img.save(path)
             .map_err(|e| format!("{}: {e}", path.display()))
     }

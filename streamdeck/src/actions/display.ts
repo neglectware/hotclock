@@ -73,7 +73,7 @@ export const displayView: ActionDef = {
       const wst = want.station ? (stations.find((s) => s.id === want.station)?.name ?? want.station) : "";
       return textFace({ tag: "display:set", glyph: "display", top: "SHOW", main: wl, mainSize: want.view === "processing" ? 17 : 24, sub: wst || `now ${cur.toLowerCase()}`, subColor: COLORS.faint });
     }
-    return textFace({
+    const f = textFace({
       tag: lit ? "display:lit" : "display:cycle",
       bg: lit ? COLORS.bgLit : undefined,
       border: lit ? COLORS.green : null,
@@ -84,6 +84,8 @@ export const displayView: ActionDef = {
       sub,
       subColor: lit ? COLORS.green : COLORS.dim,
     });
+    // a key that steps through the views shows the view that shows now, as live text
+    return want ? f : { ...f, live: true, title: [cur, sub].filter(Boolean).join("\n") };
   },
   async press(c) {
     let choice = configured(c);

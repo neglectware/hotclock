@@ -7,7 +7,7 @@ To create, rename or delete a station, use the [Stations](stations) page. For th
 The page has one tab for each station (**Station** and its name) and one tab called **This box**:
 
 - A station's tab edits that station's file, `/etc/hotclock/stations/<name>.toml`.
-- **This box** edits the global file, `/etc/hotclock/hotclock.toml`. It also has the status display and meter settings.
+- **This box** edits the global file, `/etc/hotclock/hotclock.toml`. It also has the status display, its [night color](status-display#night-color) and the meter settings.
 
 The [Settings reference](settings-reference) gives every key, its range, its default and what it does. The reference is built from the same list that this page uses.
 
@@ -27,6 +27,7 @@ The [Settings reference](settings-reference) gives every key, its range, its def
 | `restart station` | The station reads this key when it starts. The page can restart the station for you. |
 | `restart library` | The library service reads this key when it starts. |
 | `restart display` | The status display reads this key when it starts. |
+| `starts or stops at once` | Saving starts or stops the status display. The box follows the same switch at every boot. See [Status display](status-display#switch). |
 
 When you save, the page checks every value with the same code that the services use. The page refuses a value that is out of range and tells you why. A change that would break the file changes nothing.
 
@@ -46,6 +47,8 @@ The result card lists each key that changed and what happened to it:
 - `applied now`
 - `waits for a restart`
 - `not applied (station not answering)`
+- `started now` or `stopped now`, for the status display's switch
+- `not applied (systemd refused)`, for the status display's switch. The file is saved. A notice gives the reason.
 
 A key that takes effect live or at the next boundary goes to the running station immediately. The station also reads the file again at its next start.
 
@@ -71,9 +74,13 @@ See also [Troubleshooting](troubleshooting#settings-read-only). A key that takes
 
 ## Pickers
 
-- **Sound card** (`device`) lists the cards that the system found, and `null` for a station with no card. Select **Other** to type a device yourself: `hw:CARD=...,DEV=0`, or `file:/path.wav` for testing. A `file:` device writes a WAV file as fast as it can.
-- **Playlists** (`default_playlist`, `emergency_playlist`) list your playlists. Select **Other** to name a playlist that does not exist yet.
+- **The sound card** (`device`, in **Sound output**) lists the cards that the system found, and `null` for a station with no card. Select **Other...** to type a device yourself: `hw:CARD=...,DEV=0`, or `file:/path.wav` for testing. A `file:` device writes a WAV file as fast as it can.
+- **Playlists** (`default_playlist`, `emergency_playlist`) list your playlists. Select **Other...** to name a playlist that does not exist yet.
 - **Crossfade style** (`transition_preset`) lists the built-in crossfade styles, with one line about each. The same picker is on [On Air](on-air#crossfade-style) (press **Crossfade** in the settings line of the Program unit) and on [System](system).
+
+## Unload a stopped program {#unload-after}
+
+On the **This box** tab, the **Programs and playback** card has **Unload a stopped program after** (`programs.unload_after_min`). The default is 5 minutes. The change applies at once, to every station. Pick **Never** if operators want a stopped program to stay loaded. See [On Air](on-air#unload).
 
 ## Change a category's crossfade style {#category-crossfade-style}
 
@@ -83,8 +90,8 @@ A `has a patch` chip tells you that the category also changes single parameters 
 
 ## Meter ballistics
 
-On the **This box** tab, one row sets the default for the box. One more row for each station sets that station's own ballistics. See [The status display](status-display#meter-ballistics).
+On the **This box** tab, the **Meter ballistics** card has a **Box default** row. It also has one row for each station, such as **Station office**. A station's row sets that station's own ballistics. The changes apply within a second. You do not press **Save** for them. See [The status display](status-display#meter-ballistics).
 
-## Keys that arrive later
+## Keys that arrive with other milestones
 
-A card at the bottom of a tab can list keys that are designed but not in this build. Each key appears on this page when its code is installed. See [Overview](overview#what-is-built-and-what-is-coming).
+A card called **Keys that arrive with other milestones** can list keys that are designed but not in this build. Each key appears on this page when its code is installed. See [Overview](overview#what-is-built-and-what-is-coming).

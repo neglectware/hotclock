@@ -15,6 +15,11 @@ pub const NEXT_BOUNDARY: &str = "next_boundary";
 pub const STATION_RESTART: &str = "station_restart";
 pub const LIBRARY_RESTART: &str = "library_restart";
 pub const DISPLAY_RESTART: &str = "display_restart";
+/// `display.enabled`: the library service starts or stops `hotclock-display.service` as soon as the file is saved.
+pub const DISPLAY_SWITCH: &str = "display_switch";
+
+/// The status display's unit, the one unit besides the library and the stations the service user may manage.
+pub const DISPLAY_UNIT: &str = "hotclock-display.service";
 
 /// One key of a configuration file.
 #[derive(Clone, Copy)]
@@ -184,7 +189,12 @@ const BASE: &[Def] = &[
         "Extra names this box answers to in the Host header (a CNAME, a tailnet alias)."),
     def!(G, "secrets_file", "path", 0.0, 0.0, &[], r#""/etc/hotclock/secrets.toml""#, LIBRARY_RESTART,
         "Where the SMTP password lives (mode 0600)."),
+    // ---- what every station does with a stopped program, the [programs] block of the global file ----
+    def!(G, "programs.unload_after_min", "minutes_or_never", 1.0, 1440.0, &["1", "2", "5", "10", "15", "30", "60", "never"], "5", LIVE,
+        "Unload a stopped program after this many minutes: when a program has stopped (its own stop block, or the operator's Stop) and nothing plays or starts for this long, the station runs End program and stop the audio by itself. never keeps the program loaded until someone ends it."),
     // ---- the status display, the [display] block of the global file ----
+    def!(G, "display.enabled", "bool", 0.0, 0.0, &[], "true", DISPLAY_SWITCH,
+        "Status display on this box's monitor. On: the display runs now and starts with the box. Off: it stops now and stays stopped after a reboot. Without a monitor it is harmless: it looks for one every 2 seconds."),
     def!(G, "display.mode", "text", 0.0, 0.0, &[], r#""1024x600@60""#, DISPLAY_RESTART,
         "The screen's mode, WIDTHxHEIGHT or WIDTHxHEIGHT@HZ. Set through KMS; the panel's EDID is never trusted for the resolution, and a mode the connector does not list is added."),
     def!(G, "display.diagonal_in", "float", 1.0, 100.0, &[], "7.0", DISPLAY_RESTART,
@@ -227,6 +237,27 @@ const BASE: &[Def] = &[
         "A small strip of the processing meters (gain-reduction bars, AGC) in the single and split views of a compact screen, with small labels for reading up close. auto shows it while the processing chain is on, on always, off never."),
     def!(G, "display.proc_spectrum", "bool", 0.0, 0.0, &[], "false", DISPLAY_RESTART,
         "The processing view: draw the spectrum under the bars where the screen has room. The 7-inch 1024 x 600 panel has none, so it is never drawn there."),
+    // ---- the status display's night color (live: the display follows a save within a second) ----
+    def!(G, "display.night_mode", "choice", 0.0, 0.0, &["sun", "schedule", "off"], r#""sun""#, LIVE,
+        "When the panel warms up. sun: from sunset to sunrise. schedule: from night_on to night_off. off: never. Only the box's own panel changes; the web pages and the stream do not."),
+    def!(G, "display.night_kelvin", "int", 1900.0, 6500.0, &[], "3400", LIVE,
+        "The color of white at night, in kelvin. 6500 is the panel as it is; lower is warmer. 3400 is close to f.lux's default."),
+    def!(G, "display.night_dim_percent", "int", 0.0, 50.0, &[], "0", LIVE,
+        "How much less light white gives at night, in percent. The box cannot set the panel's backlight, so this is the only dimmer."),
+    def!(G, "display.night_transition_min", "int", 0.0, 180.0, &[], "60", LIVE,
+        "Minutes of gradual change: the panel starts warming this long before sunset and is warm at sunset. After sunrise it takes as long to go back."),
+    def!(G, "display.night_on", "text", 0.0, 0.0, &[], r#""20:00""#, LIVE,
+        "For schedule: the local time the night look is reached, like 20:00."),
+    def!(G, "display.night_off", "text", 0.0, 0.0, &[], r#""07:00""#, LIVE,
+        "For schedule: the local time the way back to day starts, like 07:00."),
+    def!(G, "display.night_location", "choice", 0.0, 0.0, &["timezone", "internet", "manual"], r#""timezone""#, LIVE,
+        "Where sunset and sunrise are computed for. timezone: the main city of the time zone. internet: one lookup of this box's public address a day; the time zone is used until it answers. manual: night_latitude and night_longitude."),
+    def!(G, "display.night_latitude", "float", -90.0, 90.0, &[], "null", LIVE,
+        "For manual: the latitude in degrees, north positive, like 40.71."),
+    def!(G, "display.night_longitude", "float", -180.0, 180.0, &[], "null", LIVE,
+        "For manual: the longitude in degrees, east positive, like -74.01."),
+    def!(G, "display.night_time_zone", "zone", 0.0, 0.0, &[], r#""system""#, LIVE,
+        "The time zone of the night times and of the location from the time zone. system is the machine's own."),
 ];
 
 fn leak(s: String) -> &'static str {
@@ -438,6 +469,11 @@ fn to_toml(d: &Def, v: &Value) -> Result<toml_edit::Value, String> {
         "bool" => match v.as_bool() {
             Some(b) => b.into(),
             None => return bad("on or off"),
+        },
+        "minutes_or_never" => match (v.as_i64(), v.as_str()) {
+            (Some(n), _) => n.into(),
+            (None, Some("never")) => "never".into(),
+            _ => return bad("a number of minutes or \"never\""),
         },
         "numlist" => match v.as_array() {
             Some(a) if a.iter().all(|x| x.as_f64().is_some_and(f64::is_finite)) => {
@@ -707,9 +743,10 @@ pub fn restart_unit(unit: &str) -> Result<(), String> {
 }
 
 /// `systemctl <verb> <unit>` for `start`, `stop` and `restart` only: the three verbs the package's polkit rule
-/// allows the service user on `hotclock-station@<name>.service` (and `restart` on the library and the display).
-/// `enable` and `disable` are not here on purpose: polkit cannot limit them to one unit (see deploy.md,
-/// "Stations from the web page"), so a station is started at boot by a generator that reads its file instead.
+/// allows the service user on `hotclock-station@<name>.service` and `hotclock-display.service` (and `restart` on
+/// the library). `enable` and `disable` are not here on purpose: polkit cannot limit them to one unit (see
+/// deploy.md, "Stations from the web page"), so a station and the display are started at boot by a generator
+/// that reads their files instead.
 pub fn unit_action(verb: &str, unit: &str) -> Result<(), String> {
     if !matches!(verb, "start" | "stop" | "restart") {
         return Err(format!("`{verb}` is not a verb this service may use"));
@@ -737,6 +774,57 @@ pub fn unit_state(unit: &str) -> Option<String> {
         .ok()?;
     let t = String::from_utf8_lossy(&out.stdout).trim().to_string();
     Some(if t.is_empty() { "unknown".into() } else { t })
+}
+
+/// What the status display reported about its monitor last: `output.json` in its state directory
+/// (`HOTCLOCK_DISPLAY_STATE_DIR` replaces `/var/lib/hotclock-display` in tests). The display writes it when the
+/// output comes up, when it is lost and when none can be opened; it stays behind when the display stops, so it is
+/// believed only while the process that wrote it is alive.
+pub fn display_output() -> Option<Value> {
+    let dir = std::env::var_os("HOTCLOCK_DISPLAY_STATE_DIR")
+        .map_or_else(|| PathBuf::from("/var/lib/hotclock-display"), PathBuf::from);
+    let v: Value =
+        serde_json::from_str(&std::fs::read_to_string(dir.join("output.json")).ok()?).ok()?;
+    let pid = v["pid"].as_u64()?;
+    Path::new(&format!("/proc/{pid}")).exists().then_some(v)
+}
+
+/// The status display beside its switch: running or stopped (from systemd) and, while it runs, its monitor.
+/// `text` is the line the page shows: `HDMI-A-2, 1024x600@60`, `no monitor connected`, `stopped`...
+pub fn display_status(enabled: bool) -> Value {
+    let state = unit_state(DISPLAY_UNIT);
+    let running = matches!(state.as_deref(), Some("active" | "reloading"));
+    let output = if running { display_output() } else { None };
+    let text = match (state.as_deref(), &output) {
+        (None, _) => "unknown: no service manager".to_string(),
+        (_, Some(o)) if o["waiting"].is_string() => {
+            format!(
+                "waiting for a station ({})",
+                o["waiting"].as_str().unwrap_or("")
+            )
+        }
+        (_, Some(o)) if o["connected"] == true => format!(
+            "{}, {}",
+            o["connector"].as_str().unwrap_or("?"),
+            o["mode"].as_str().unwrap_or("?")
+        ),
+        (_, Some(_)) => "no monitor connected".to_string(),
+        (Some("active" | "reloading"), None) => {
+            "running; it has not reported a monitor yet".to_string()
+        }
+        (Some("activating"), None) => "starting".to_string(),
+        (Some("deactivating"), None) => "stopping".to_string(),
+        (Some("failed"), None) => "failed (see `journalctl -u hotclock-display`)".to_string(),
+        (Some(_), None) => "stopped".to_string(),
+    };
+    json!({
+        "unit": DISPLAY_UNIT,
+        "enabled": enabled,
+        "state": state,
+        "running": running,
+        "output": output,
+        "text": text,
+    })
 }
 
 /// Whether this box has a service manager the page can ask (systemd, or the fake of a test).
@@ -890,7 +978,12 @@ custom_unknown = 5
         assert_eq!(eg["time_zone"], json!(g.time_zone));
         assert_eq!(eg["library.listen"], json!(g.library.listen));
         assert_eq!(eg["secrets_file"], json!(g.secrets_file));
+        assert_eq!(
+            eg["programs.unload_after_min"],
+            json!(g.programs.unload_after_min.minutes())
+        );
         let d = &g.display;
+        assert_eq!(eg["display.enabled"], json!(d.enabled));
         assert_eq!(eg["display.mode"], json!(d.mode));
         assert_eq!(eg["display.diagonal_in"], json!(d.diagonal_in));
         assert_eq!(eg["display.view_distance_cm"], json!(d.view_distance_cm));
@@ -918,6 +1011,19 @@ custom_unknown = 5
         assert_eq!(eg["display.bar_date"], json!(d.bar_date));
         assert_eq!(eg["display.bar_cpu"], json!(d.bar_cpu));
         assert_eq!(eg["display.bar_network"], json!(d.bar_network));
+        assert_eq!(eg["display.night_mode"], json!(d.night_mode));
+        assert_eq!(eg["display.night_kelvin"], json!(d.night_kelvin));
+        assert_eq!(eg["display.night_dim_percent"], json!(d.night_dim_percent));
+        assert_eq!(
+            eg["display.night_transition_min"],
+            json!(d.night_transition_min)
+        );
+        assert_eq!(eg["display.night_on"], json!(d.night_on));
+        assert_eq!(eg["display.night_off"], json!(d.night_off));
+        assert_eq!(eg["display.night_location"], json!(d.night_location));
+        assert_eq!(eg["display.night_latitude"], json!(d.night_latitude));
+        assert_eq!(eg["display.night_longitude"], json!(d.night_longitude));
+        assert_eq!(eg["display.night_time_zone"], json!(d.night_time_zone));
     }
 
     #[test]

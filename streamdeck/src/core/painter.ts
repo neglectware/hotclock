@@ -1,21 +1,33 @@
-/** Sends a key's picture to Stream Deck at most twice a second and only when it changed (Elgato rate-limits `setImage`). */
-export class KeyPainter {
-  private last: string | null = null;
+/**
+ * Sends what a key shows to Stream Deck at most twice a second and only when it changed (Elgato rate-limits
+ * `setImage` and `setTitle`). `sig` says when two values look the same on the key.
+ */
+export class KeyPainter<T = string> {
+  private last: T | null = null;
+  private lastSig: string | null = null;
   private lastAt = -Infinity;
-  private want: string | null = null;
+  private want: T | null = null;
   private timer: ReturnType<typeof setTimeout> | null = null;
   /** How many pictures have been sent; the tests count them. */
   sent = 0;
 
   constructor(
-    private readonly send: (image: string) => unknown,
+    private readonly send: (value: T, prev: T | null) => unknown,
     private readonly clock: () => number,
     private readonly minIntervalMs = 500,
+    private readonly sig: (value: T) => string = (v) => String(v),
   ) {}
 
-  paint(image: string): void {
-    this.want = image;
-    if (image === this.last) {
+  /** What was last sent. */
+  get current(): T | null {
+    return this.last;
+  }
+
+  paint(value: T): void {
+    this.want = value;
+    if (this.lastSig !== null && this.sig(value) === this.lastSig) {
+      // the same on the key; keep the newest (its tag and text) for the tests
+      this.last = value;
       this.cancel();
       return;
     }
@@ -28,7 +40,7 @@ export class KeyPainter {
         // A timer may fire a millisecond early: keep the spacing, so no second ever holds three pictures.
         const left = this.lastAt + this.minIntervalMs - this.clock();
         if (left > 0) {
-          this.paint(this.want ?? "");
+          if (this.want !== null) this.paint(this.want);
           return;
         }
         this.flush();
@@ -39,17 +51,22 @@ export class KeyPainter {
   /** Forget what Stream Deck shows (it was reset, or the key came back), so the next picture is sent. */
   invalidate(): void {
     this.last = null;
+    this.lastSig = null;
     this.lastAt = -Infinity;
   }
 
   private flush(): void {
     this.cancel();
-    if (this.want === null || this.want === this.last) return;
+    if (this.want === null) return;
+    const sig = this.sig(this.want);
+    if (sig === this.lastSig) return;
+    const prev = this.last;
     this.last = this.want;
+    this.lastSig = sig;
     this.lastAt = this.clock();
     this.sent++;
     try {
-      const r = this.send(this.want);
+      const r = this.send(this.want, prev);
       if (r && typeof (r as Promise<void>).catch === "function") (r as Promise<void>).catch(() => undefined);
     } catch {
       /* the key is gone */

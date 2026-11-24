@@ -52,9 +52,37 @@ pub struct DisplayArgs {
     /// Override `display.proc_spectrum`: the spectrum in the processing view, where there is room.
     #[arg(long)]
     proc_spectrum: Option<bool>,
+    /// Draw nothing: exit 0 when `display.enabled` is on (or the file cannot be read, so the display itself reports
+    /// the error), 1 when it is off. The unit's `ExecCondition=`: an off switch keeps the display stopped whatever
+    /// pulls the unit in (the boot generator, an `enable` made by hand, a restart).
+    #[arg(long)]
+    check_enabled: bool,
+    /// The night color at this temperature (1900 to 6500 K), whatever the hour: with `--render-png`, the PNG is the
+    /// frame as the panel would show it; live, the panel keeps this look (to judge it), ignoring `display.night_*`.
+    #[arg(long, value_name = "K")]
+    night_kelvin: Option<u32>,
+    /// With `--night-kelvin`: the night dim, 0 to 50 percent.
+    #[arg(long, value_name = "PERCENT", default_value_t = 0)]
+    night_dim: u32,
 }
 
 pub fn run(a: DisplayArgs, global: &std::path::Path) -> ExitCode {
+    if a.check_enabled {
+        return match GlobalConfig::load_or_default(global) {
+            Ok(g) if !g.display.enabled => {
+                println!(
+                    "hotclock display: display.enabled is off in {}: not starting",
+                    global.display()
+                );
+                ExitCode::FAILURE
+            }
+            Ok(_) => ExitCode::SUCCESS,
+            Err(e) => {
+                eprintln!("{e}");
+                ExitCode::SUCCESS
+            }
+        };
+    }
     let mut g = match GlobalConfig::load_or_default(global) {
         Ok(g) => g,
         Err(e) => {
@@ -86,13 +114,23 @@ pub fn run(a: DisplayArgs, global: &std::path::Path) -> ExitCode {
     if let Some(v) = a.proc_spectrum {
         g.display.proc_spectrum = v;
     }
+    let force_night = match a.night_kelvin {
+        Some(k) if (1900..=6500).contains(&k) && a.night_dim <= 50 => {
+            Some((f64::from(k), f64::from(a.night_dim) / 100.0))
+        }
+        Some(_) => {
+            eprintln!("--night-kelvin is 1900 to 6500 and --night-dim 0 to 50");
+            return ExitCode::from(2);
+        }
+        None => None,
+    };
     let errs = g.display.validate(global);
     if !errs.is_empty() {
         eprintln!("{}", common::config::ConfigErrors(errs));
         return ExitCode::from(2);
     }
     match &a.render_png {
-        Some(png) => match render_png(&a, &g, png) {
+        Some(png) => match render_png(&a, &g, png, force_night) {
             Ok(()) => ExitCode::SUCCESS,
             Err(e) => {
                 eprintln!("hotclock display: {e}");
@@ -108,12 +146,17 @@ pub fn run(a: DisplayArgs, global: &std::path::Path) -> ExitCode {
                 }
                 None => None,
             };
-            display::app::run(&g, global, view, crate::brand::DISPLAY_NAME)
+            display::app::run(&g, global, view, force_night, crate::brand::DISPLAY_NAME)
         }
     }
 }
 
-fn render_png(a: &DisplayArgs, g: &GlobalConfig, png: &std::path::Path) -> Result<(), String> {
+fn render_png(
+    a: &DisplayArgs,
+    g: &GlobalConfig,
+    png: &std::path::Path,
+    night: Option<(f64, f64)>,
+) -> Result<(), String> {
     let (w, h) = match &a.size {
         Some(s) => {
             let (w, h, _) =
@@ -163,7 +206,11 @@ fn render_png(a: &DisplayArgs, g: &GlobalConfig, png: &std::path::Path) -> Resul
             g.display.diagonal_in, r.plan.min_px
         );
     }
-    r.canvas.save_png(png)?;
+    // the frame as the panel shows it: through the night table, the same pass as the live display's
+    let lut = night.map_or_else(common::night::Lut::identity, |(k, d)| {
+        common::night::Lut::for_look(k, d)
+    });
+    r.canvas.save_png_with(png, &lut)?;
     if let Some(l) = &a.log {
         std::fs::write(
             l,

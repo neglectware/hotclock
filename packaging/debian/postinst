@@ -3,6 +3,46 @@
 # starts or restarts a station: playout is stopped and started by an operator (`upgrade.sh` does it in order,
 # one station at a time, and checks each).
 set -e
+global=/etc/hotclock/hotclock.toml
+marker=/var/lib/hotclock/.display-switch
+hotclock=/usr/bin/hotclock
+
+# The status display's switch is `display.enabled` (default on), and the generator starts the display at boot from
+# it. Before it, the display ran only where an operator had run `systemctl enable hotclock-display`. Once per box
+# (the marker): a box upgraded from before the switch keeps what it had, so a box whose display was not enabled gets
+# `enabled = false` written into its [display] block. A fresh install has no such past: the default (on) applies.
+display_switch_migrate() {
+    [ -e "$marker" ] && return 0
+    if [ -n "$2" ] && [ "$1" != enabled ] && [ -f "$global" ]; then
+        if awk '{ sub(/^[ \t]+/, ""); sub(/[ \t]*#.*$/, "") }
+                /^\[/ { t = $0; gsub(/[][ \t]/, "", t); next }
+                (t == "" && /^display[ \t]*\.[ \t]*enabled[ \t]*=/) || (t == "display" && /^enabled[ \t]*=/) { f = 1 }
+                END { exit !f }' "$global"; then
+            : # the file already says it
+        else
+            cp -p "$global" "$global.pre-display-switch"
+            line='enabled = false   # the status display was not enabled before the Settings switch existed'
+            if grep -q '^[[:space:]]*\[display\][[:space:]]*\(#.*\)\?$' "$global"; then
+                awk -v l="$line" '{ print } !done && /^[ \t]*\[display\][ \t]*(#.*)?$/ { print l; done = 1 }' "$global.pre-display-switch" > "$global"
+            elif grep -q '^[[:space:]]*display[[:space:]]*[.=]' "$global"; then
+                echo "hotclock: $global sets display keys outside a [display] block; add enabled = false there to keep the display off." >&2
+            else
+                printf '\n[display]\n%s\n' "$line" >> "$global"
+            fi
+            # the service's own parser must read it as off, else the file goes back as it was
+            if ! cmp -s "$global" "$global.pre-display-switch"; then
+                if "$hotclock" --global-config "$global" display --check-enabled >/dev/null 2>&1; then
+                    cp -p "$global.pre-display-switch" "$global"
+                    echo "hotclock: could not write display.enabled = false into $global; the status display now starts at boot. Turn it off in Settings." >&2
+                else
+                    echo "hotclock: the status display was not enabled: wrote enabled = false into the [display] block of $global (Settings, Status display turns it on). The previous file is $global.pre-display-switch."
+                fi
+            fi
+        fi
+    fi
+    mkdir -p "$(dirname "$marker")"
+    echo "display.enabled migration done by the package's postinst; see deploy.md, The status display" > "$marker"
+}
 case "$1" in
 configure)
     if [ -x /usr/bin/systemd-sysusers ]; then
@@ -22,6 +62,13 @@ configure)
     if [ -x /usr/bin/udevadm ]; then
         udevadm control --reload-rules 2>/dev/null || true
     fi
+    # Whether an operator enabled the display by hand: then the generator takes it over (the display keeps running).
+    was=$(systemctl is-enabled hotclock-display.service 2>/dev/null || true)
+    display_switch_migrate "$was" "$2"
+    if [ "$was" = enabled ]; then
+        systemctl disable hotclock-display.service 2>/dev/null || true
+        echo "hotclock: hotclock-display is no longer enabled by hand; display.enabled (Settings, Status display) starts it at boot now."
+    fi
     if [ -d /run/systemd/system ]; then
         systemctl daemon-reload || true
         # The journal cap takes effect on the journal's next start.
@@ -34,7 +81,7 @@ configure)
             echo "hotclock: installed. Create /etc/hotclock/hotclock.toml and /etc/hotclock/stations/<name>.toml"
             echo "(examples in /usr/share/hotclock/examples/), then:"
             echo "  systemctl enable --now hotclock-library      (then make stations on the web page, Stations; or enable hotclock-station@<name>)"
-            echo "and, on a box with a monitor: systemctl enable --now hotclock-display   (see deploy.md, Status display)"
+            echo "  systemctl start hotclock-display             (the status display; it also starts at every boot. Settings, Status display turns it off)"
         fi
     fi
     ;;

@@ -199,6 +199,29 @@ impl Output for AlsaOutput {
         self.pcm.as_ref().and_then(|p| p.delay().ok())
     }
 
+    /// Wait (`snd_pcm_wait`) until the device has room for a block, so the rt thread renders it just
+    /// in time. A stream that is not running yet (filling up to its start threshold) has room at once.
+    /// Any error returns at once: the write that follows reports it. Never more than a few periods.
+    fn wait_room(&mut self, frames: usize) {
+        let Some(pcm) = self.pcm.as_ref() else {
+            return;
+        };
+        let period_ms = (frames as u64 * 1000 / u64::from(self.granted.rate.max(1))) as u32 + 1;
+        for _ in 0..4 {
+            match pcm.avail_update() {
+                Ok(a) if a >= 0 && a as usize >= frames => return,
+                Ok(_) => {}
+                Err(_) => return,
+            }
+            if pcm.state() != alsa::pcm::State::Running {
+                return;
+            }
+            if pcm.wait(Some(2 * period_ms)).is_err() {
+                return;
+            }
+        }
+    }
+
     fn recover(&mut self, fault: Fault) -> Result<(), OutputError> {
         let pcm = self
             .pcm

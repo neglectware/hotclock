@@ -52,7 +52,8 @@ export async function handlePiRequest(env: Env, req: PiRequest): Promise<PiReply
     case "playlists": {
       const r = await env.http.get(`${base}/api/v1/playlists`);
       if (!r.ok) return reply({ ok: false, error: r.error });
-      const playlists = (r.data?.playlists ?? []).map((p: any) => ({ id: p.id, name: String(p.name), station: p.station_id ?? null })); // eslint-disable-line @typescript-eslint/no-explicit-any
+      // a program: a sequential playlist with blocks (a playlist switch must not load one; Start Playlist as Program does)
+      const playlists = (r.data?.playlists ?? []).map((p: any) => ({ id: p.id, name: String(p.name), station: p.station_id ?? null, program: p.mode === "sequential" && Number(p.blocks ?? 0) > 0 })); // eslint-disable-line @typescript-eslint/no-explicit-any
       return reply({ ok: true, playlists });
     }
     case "items": {

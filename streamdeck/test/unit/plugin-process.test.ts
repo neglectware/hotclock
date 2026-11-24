@@ -23,7 +23,6 @@ const until = async (f: () => boolean, ms = 8000, what = "condition") => {
   }
 };
 const send = (m: unknown) => app!.send(JSON.stringify(m));
-const decode = (uri: string) => decodeURIComponent(uri.replace("data:image/svg+xml;charset=utf8,", ""));
 
 beforeAll(async () => {
   if (!existsSync(bundle)) execFileSync("npx", ["rollup", "-c"], { cwd: root });
@@ -60,19 +59,21 @@ afterAll(async () => {
 const appear = (action: string, context: string, settings: Record<string, unknown>) =>
   send({ event: "willAppear", action: `com.neglectware.hotclock.${action}`, context, device: "dev1", payload: { settings, coordinates: { column: 0, row: 0 }, controller: "Keypad", isInMultiAction: false, state: 0 } });
 
+const titleOf = (m: { payload?: { title?: string } }): string => m.payload?.title ?? "";
+
 describe("the built plugin as a process", () => {
-  it("registers, asks for its global settings, and draws a Now Playing key from the box", async () => {
+  it("registers, asks for its global settings, and shows a Now Playing key from the box as its title", async () => {
     await until(() => received.some((m) => m.event === "getGlobalSettings"), 5000, "getGlobalSettings");
     appear("now-playing", "ctx-np", { station: "office", stationPort: box.port });
-    await until(() => received.some((m) => m.event === "setImage" && m.context === "ctx-np" && decode(m.payload.image).includes("From Silence")), 8000, "a picture with the song");
-    const img = received.filter((m) => m.event === "setImage" && m.context === "ctx-np").at(-1);
-    expect(img.payload.image.startsWith("data:image/svg+xml;charset=utf8,")).toBe(true);
-    expect(decode(img.payload.image)).toContain("<svg");
+    await until(() => received.some((m) => m.event === "setTitle" && m.context === "ctx-np" && titleOf(m).includes("From Silence")), 8000, "the song in the title");
+    expect(received.some((m) => m.event === "setState" && m.context === "ctx-np" && m.payload.state === 0)).toBe(true);
   });
 
   it("sends a short press of a Next key to the box as a JSON POST", async () => {
     appear("next", "ctx-next", { station: "office", stationPort: box.port });
-    await until(() => received.some((m) => m.event === "setImage" && m.context === "ctx-next" && decode(m.payload.image).includes("NEXT")), 8000, "the Next key drawn");
+    await until(() => received.some((m) => m.event === "setTitle" && m.context === "ctx-next" && titleOf(m).includes("NEXT")), 8000, "the Next key's label");
+    // a standard key: its state picture (no picture of the plugin's own)
+    expect(received.filter((m) => m.event === "setImage" && m.context === "ctx-next").every((m) => !m.payload.image)).toBe(true);
     send({ event: "keyDown", action: "com.neglectware.hotclock.next", context: "ctx-next", device: "dev1", payload: { settings: {}, coordinates: { column: 1, row: 0 }, state: 0, isInMultiAction: false } });
     send({ event: "keyUp", action: "com.neglectware.hotclock.next", context: "ctx-next", device: "dev1", payload: { settings: {}, coordinates: { column: 1, row: 0 }, state: 0, isInMultiAction: false } });
     await until(() => box.requests.some((r) => r.method === "POST" && r.url === "/api/v1/transport/next"), 5000, "POST /transport/next");
@@ -88,9 +89,9 @@ describe("the built plugin as a process", () => {
     expect(r.payload).toMatchObject({ reply: "stations", tag: "7", ok: true, stations: [{ id: "office", name: "Office", port: box.port }] });
   });
 
-  it("stops asking the box when its key disappears, and draws OFFLINE when the box goes", async () => {
+  it("stops asking the box when its key disappears, and says OFFLINE when the box goes", async () => {
     await box.stop();
-    await until(() => received.some((m) => m.event === "setImage" && m.context === "ctx-np" && decode(m.payload.image).includes("OFFLINE")), 8000, "OFFLINE after the box stopped");
+    await until(() => received.some((m) => m.event === "setTitle" && m.context === "ctx-np" && titleOf(m).includes("OFFLINE")), 8000, "OFFLINE after the box stopped");
     send({ event: "willDisappear", action: "com.neglectware.hotclock.now-playing", context: "ctx-np", device: "dev1", payload: { settings: {}, coordinates: { column: 0, row: 0 }, controller: "Keypad", isInMultiAction: false, state: 0 } });
   });
 });

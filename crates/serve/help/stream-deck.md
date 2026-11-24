@@ -22,21 +22,22 @@ The plugin needs the Stream Deck app 6.9 or later. Nothing is installed on the b
 3. Press **Test connection**. The plugin asks the library service for its stations, and shows them: `Connected to the library: 2 stations (office, eve)`. If the port is a station's port, it says so: `8301 is a station port (station office), not the library. The library is usually 8300.`
 4. In **Station**, select the station that this key controls. The plugin reads the list from the box, and saves the station's name and its port. **Refresh** reads the stations and playlists again. The lists are also read again each time the settings open, so a playlist made since shows up.
 
-Until a box address is set, every key shows `SET UP` in amber. A key that needs a playlist, an item or a block shows `SET UP` and what it needs.
+Until a box address is set, every key shows `SET UP`. A key that needs a playlist, an item or a block shows `SET UP` and what it needs.
 
-A key that controls a station must have one. A key with no station selected shows a red `NO STATION`, and a press sends nothing. It never falls back to the first station.
+A key that controls a station must have one. A key with no station selected shows `NO STATION`, and a press sends nothing. It never falls back to the first station.
 
-## Set a key's face {#key-face}
+## The key's title and pictures {#key-face}
 
-Under **Key face**, you can change what any key looks like:
+Each key is a standard Stream Deck key. You set its look in the Stream Deck app, as for any other key:
 
-- **Label**: your own text, in place of the key's main text (for example, the playlist name). The small status line stays, for example `RUNNING` or `expected 18:45`.
-- **Label color**: the color of that text. **Default** goes back to the key's own colors.
-- **Image**: your own picture for the key. The plugin makes it 144 x 144 pixels.
-- **Image when lit**: a second picture for when the key is lit (the program runs, the playlist is on air, a hold is on).
-- **Tint the image green when lit**: with no second picture, the first picture turns green while the key is lit. So one picture is enough.
+- **Title**: the key's label. The app's own font, size, color and position apply. With no title, the key shows its own label, for example the playlist name or `NEXT`.
+- **Two states**: state 0 is off, a plain grey square. State 1 is on, a plain green square. The plugin switches between them. A key is on while the program runs, the playlist is on air, the hold is on, and so on. To use your own pictures, set a picture for each state in the app.
 
-With nothing set, the key keeps its own face. The faces for a problem (`OFFLINE`, `NO STATION`, `SET UP`) do not change.
+Info keys show live text as their title, in place of the Title field: Now Playing, Elapsed / Remaining, Next Up, Next Block, Loudness, Schedule Change while a change is waiting, and a Display View key that steps through the views. Now Playing also shows the album art as its picture.
+
+A problem shows over your title, on state 0: `OFFLINE`, `NO STATION`, `SET UP`, and an alert on the Station Status key.
+
+Version 0.2.0 removed the plugin's own **Key face** settings (label, label color, pictures, tint). A key that had them shows its own label, or your title. Set the title and pictures in the app.
 
 Under **More** there are two more settings:
 
@@ -47,35 +48,35 @@ Under **More** there are two more settings:
 
 | Action | A press does | The key shows |
 |---|---|---|
-| Now Playing | nothing | The album art (dimmed), the title, the artist, and the time left to the segue as `-2:31`. Amber at 30 s and less, red at 10 s and less. Inside a gapless album run, it counts to the end of the run and shows `ALBUM`. An item with no art shows a plain placeholder. |
-| Elapsed / Remaining | changes between the two | the time as large digits |
+| Now Playing | nothing | The time left to the segue, as `-2:31`, and the title, over the album art. Inside a gapless album run, it counts to the end of the run. An item with no art shows the state picture. |
+| Elapsed / Remaining | changes between the two | the time, as `REMAINING` and `-2:31` |
 | Next Up | nothing | the next title and when it starts |
 | Next (Segue Now) | segues now | `NEXT` |
 | Fade to Next | fades out and starts the next item (the fade length is a setting; blank means the station's default) | `FADE` |
-| Hold / Resume | holds after the item on air, or resumes | lit amber while held |
+| Hold / Resume | holds after the item on air, or resumes | on while held |
 | Stop | **hold the key** for half a second | `STOP`; a short press shows `HOLD` |
 | Cut | **hold the key** for half a second | `CUT` |
-| Start / Switch Playlist | switches to the selected playlist (now, at the next segue, or at the end of this item), or starts it when the station is stopped | Lit green while that playlist is the station's active playlist. A sequential playlist plays through once. The station then goes back to its default playlist, and the key goes dark. |
-| Schedule Change | schedules a one-time switch at a minute of the hour (for example `:00`) or after a delay; a second press cancels it | `SCHEDULED` and the time, while a switch is pending |
+| Start / Switch Playlist | switches to the selected playlist (now, at the next segue, or at the end of this item), or starts it when the station is stopped. The picker does not list programs (sequential playlists with blocks), and the box refuses a switch to one: use Start Playlist as Program for them | On while that playlist is the station's active playlist. A sequential playlist plays through once. The station then goes back to its default playlist, and the key goes off. |
+| Schedule Change | schedules a one-time switch at a minute of the hour (for example `:00`) or after a delay; a second press cancels it. Like Start / Switch Playlist, it does not list programs | `SCHEDULED` and the time, on, while a switch is pending |
 | Reshuffle | reshuffles the active playlist | the new next title, for 2 s |
-| Fire Item (Cart) | plays the selected library item over the audio on air | lit green while it plays |
-| Loudness | nothing; **hold** to reset the integrated reading | The window loudness against the target, for example `-14.2 / -14`. Green within 1 LU, amber outside it. With the loudness controller off, it shows the reading and `no target set`. |
-| Station Status | opens the box's web UI | green, amber (a warning alert) or red (a critical alert, or the station does not answer) |
-| Start Playlist as Program | starts the playlist as the program now (T0 = now), from its first row, whatever the station is doing. The picker lists only the programs of the key's station, and those of no station. The box refuses a program of another station: a stopped station starts playing, and anything else on air fades out over 2 s (see [Start a program](block-engine#start-a-program)); **hold** cancels the fallback start | `expected 18:45`, `ARMED`, or lit while the program runs |
-| Arm / Disarm Program | arms or disarms the fallback start of a program that is started by hand | Lit amber while armed. A Start block with no fallback cannot be armed (the Monday example has none). The box answers 409 with what to set, and the key shows its alert. |
-| Next Block | nothing; **hold** fires the block now, if that is turned on in the key's settings | the next block's countdown (amber under 60 s, red under 10 s), and `END +3 s` while back-timing is on |
-| Fire Block | fires the selected block now | lit green after it fires |
-| Continue | releases a Wait block that waits for the operator | lit amber while a Wait holds |
+| Fire Item (Cart) | plays the selected library item over the audio on air | on while it plays |
+| Loudness | nothing; **hold** to reset the integrated reading | The window loudness against the target, for example `-14.2 / -14`. On within 1 LU of the target. With the loudness controller off, it shows the reading and `no target set`. |
+| Station Status | opens the box's web UI | on (green) when all is well; `WARNING` or `ALERT` and the alert's code on state 0; `OFFLINE` when the station does not answer |
+| Start Playlist as Program | starts the playlist as the program now (T0 = now), from its first row, whatever the station is doing. The picker lists only the programs of the key's station, and those of no station. The box refuses a program of another station: a stopped station starts playing, and anything else on air fades out over 2 s (see [Start a program](block-engine#start-a-program)); **hold** cancels the fallback start | on while the program runs |
+| Arm / Disarm Program | arms or disarms the fallback start of a program that is started by hand | On while armed. A Start block with no fallback cannot be armed (the Monday example has none). The box answers 409 with what to set, and the key shows its alert. |
+| Next Block | nothing; **hold** fires the block now, if that is turned on in the key's settings | the next block's countdown and its name, or `END +3 s` while back-timing is on |
+| Fire Block | fires the selected block now | on after it fires |
+| Continue | releases a Wait block that waits for the operator | on while a Wait holds |
 | Skip Next Block | skips the next block | `SKIP` and the block's name |
 | Abort Program | **hold the key**; ends the program, and also stops the audio if that is turned on | `ABORT` |
 | Back-time End | back-times the program to end at a time of day or after a delay | the countdown to the end, and `END +3 s` |
-| Display View | sets the box's display | the view that shows now |
+| Display View | sets the box's display | on while the view it sets shows |
 
 Actions that stop audio (Stop, Cut, Abort Program) act only when you hold the key for 500 ms. A stray touch does nothing. All other actions act when you release the key.
 
 ## When the box does not answer {#offline}
 
-When a station does not answer, every key of that station shows a grey `OFFLINE` within 5 seconds. The Station Status key turns red.
+When a station does not answer, every key of that station shows `OFFLINE` on state 0 within 5 seconds.
 
 A press while the station is offline does nothing, and the plugin does not keep it. The press does not fire when the station comes back.
 
@@ -92,9 +93,9 @@ The Display View key sets what the box's own display shows (see [The status disp
 
 The key talks to the library service, so it needs the library port, not a station. The processing view exists only on boxes whose version has it. An older box refuses it, and the key shows its alert.
 
-## How the keys are drawn {#drawing}
+## How the keys are updated {#drawing}
 
-The plugin draws each key as a picture. It sends a maximum of two pictures a second to a key, and only when the picture changes.
+The plugin sets each key's state and title (and the Now Playing picture). It does this a maximum of two times a second for a key, and only when something changes.
 
 The countdowns run on the computer's own clock between the box's `timing` events, which come once a second. Each event corrects the countdown, so the countdowns agree with the box to within half a second.
 
@@ -114,6 +115,7 @@ The station's `state` also lists the carts that play, as `carts: [{item_id, star
 ## If a key does not work {#troubleshooting}
 
 - **`SET UP`**: there is no box address. Set it in the settings of any key.
+- **The key shows your title but not the live text**: that is an info key's title. Info keys always show their live text.
 - **`OFFLINE`**: the plugin cannot reach the station. Open the box's web UI from the same computer. Check the station port in the key's settings (**Station port** is under the station list).
 - **The station list is empty**: the box address is wrong, or the library service is not running. Press **Test connection**.
 - **A press shows a yellow triangle**: the box refused the press (for example, Continue when nothing waits). The On Air page of the web UI shows the same refusal in words.

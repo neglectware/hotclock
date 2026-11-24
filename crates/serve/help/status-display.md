@@ -7,15 +7,30 @@ There are two displays. They show the same information:
 - **The native display** is drawn by the program `hotclock display`, directly on the box's own monitor. It has no desktop, no window system and no browser, and it takes over the console of tty1. It talks only to the stations and the library service, and it cannot touch the audio.
 - **The web display** is the page `http://<box>:8300/display`, for a browser on a screen of its own (a kiosk). The page `http://<box>:8300/display?station=<name>` shows one station. The web display draws the same layouts as the native display.
 
-## Turn on the native display {#turn-on-the-native-display}
+## Turn the native display on or off {#switch}
 
-The package does not turn on the native display, because many boxes have no screen. To turn it on, type:
+The switch is in [Settings](settings), on the **This box** tab, in the **Status display** card. It is called **Status display on this box's monitor** (`display.enabled`).
 
-```
-sudo systemctl enable --now hotclock-display
-```
+1. Tick the box to turn the display on. Clear it to turn the display off.
+2. Press **Save**.
 
-The display starts at once, and again at each boot.
+The display starts or stops at once. The box also follows the switch at every boot. You do not need a shell for this.
+
+The switch is on after a new install. A box with no monitor is not harmed. The display looks for a monitor every 2 seconds and writes to the log once a minute. An upgrade keeps what the box had. If the display was not turned on before the switch existed, the upgrade sets the switch to off.
+
+A line under the switch tells you what the display does now:
+
+- `running` and the connector and the mode in use, for example `HDMI-A-2, 1024x600@60`.
+- `running` and `no monitor connected`. The display waits for a monitor.
+- `running` and `waiting for a station`. The box has no station yet. The display starts to draw when you make one.
+- `stopped`. The switch is off, or the display has not started yet.
+- `failed`. Look in the log: `journalctl -u hotclock-display`.
+
+The line updates every 5 seconds.
+
+The display takes the screen's text console (tty1) while it runs. After you turn it off, the login prompt on that screen may come back only at the next boot.
+
+If systemd refuses to start or stop the display, the page tells you why. The switch is still saved, and the next boot follows it.
 
 ## What the screen shows
 
@@ -24,7 +39,7 @@ The display starts at once, and again at each boot.
   - `ASSIST` or `HELD` (amber);
   - `SAFE MODE` (red);
   - `NO CONNECTION` (red, when the display cannot reach the station).
-- **Now playing** shows the cover, the title, the artist, and the time played and the time left. The time left turns amber and then red as it runs down. The segue line tells what comes next and when: `Segue in 0:14`, `ALBUM` for a gapless album transition, or `HELD` or `STOPPED` and how long ago the item ended. Nothing counts below zero.
+- **Now playing** shows the cover, the title, the artist, and the time played and the time left. The time left turns amber and then red as it runs down. The segue line tells what comes next and when: `Segue in 0:14`, `ALBUM` for a gapless album transition, or `HELD` or `STOPPED` and how long ago the item ended. Nothing counts below zero. A stopped item stays on the screen until the program is unloaded. **End program and stop the audio** unloads it, by hand or [after a few minutes stopped](on-air#unload). The item then leaves the screen.
 - **The queue** shows the next items with their expected start times. A small badge tells where an item came from: `ROT` (rotation), `LINER`, `ID`, `BLK` (a block) or `MAN` (by hand).
 - **Block rows in the queue.** A block of the running program that acts soon has a row of its own. The row shows the block's badge (`FADE`, `STOP`, `PLAY`, `OSC`, `MIDI`, `HTTP`, `ID`, `WAIT`, `LOOP`, `GAIN`, `MUTE`), its name, and the time to go in minutes and seconds. The time is amber under 60 seconds and red under 10 seconds. The small layouts hide the badge and keep the name and the time.
 - **The END line** shows while a Play block is back-timed. It is above the queue and reads `END +3 s` and a state: `PLANNING`, `ON TARGET`, `WITHIN TOLERANCE` (amber) or `FALLBACK` (red). Plus means that the last song is planned to end that many seconds after the end time. It is the same line as on the [On Air](on-air#program) panel. See [The block engine](block-engine#back-timing).
@@ -190,10 +205,74 @@ When the chain is on, the screen draws the stage columns and the gain curve from
 
 The settings are in the `[display]` block of the global file, and on the **This box** tab of [Settings](settings). The full list, with ranges and defaults, is in the [Settings reference](settings-reference#global-status-display-the-box-s-own-monitor).
 
-A change takes effect when the display restarts. To restart it from the Settings page, press **Restart display now**. The screen goes blank for a second. No station is touched.
+A change takes effect when the display restarts. The [night color](#night-color) settings are the exception: they take effect at once. To restart the display from the Settings page, press **Restart display now**. The screen goes blank for a second. No station is touched.
 
 - **`display.mode`** sets the screen's mode, for example `1024x600@60`. The display sets the mode explicitly through the kernel's display driver. It never trusts the panel's own description of itself (EDID) for the size. If the connector does not list the mode, the display adds it.
 - **`display.connector`** and **`display.device`** select the video output. By default, the display uses the first connected output.
+
+## Night color {#night-color}
+
+Night color makes the box's own panel warmer after sunset and turns it back after sunrise. It works like Night Shift on a phone. A warm white is easier on the eyes in a dark room.
+
+Only the native display on the box's monitor changes color. The web display, On Air, the other pages and the stream never change color.
+
+### Set up night color {#night-color-setup}
+
+The settings are on the **This box** tab of [Settings](settings), in the card **Status display: night color**. Press **Save** after a change. The panel follows within a second. The display does not restart.
+
+| Setting | What it does | Default |
+|---|---|---|
+| **Night color** (`display.night_mode`) | `sun` makes the panel warm from sunset to sunrise. `schedule` uses two fixed times. `off` turns night color off. | `sun` |
+| **Night temperature** (`display.night_kelvin`) | The color of white at night, from 1900 K to 6500 K. A lower number is warmer. 6500 K leaves the panel as it is. | 3400 K |
+| **Night dim** (`display.night_dim_percent`) | Makes the panel give less light at night, from 0 to 50 %. | 0 % |
+| **Transition length** (`display.night_transition_min`) | How long the change takes, from 0 to 180 minutes. | 60 |
+| **Night from (schedule)** and **Day from (schedule)** (`display.night_on`, `display.night_off`) | For `schedule` only. Local times, like `20:00` and `07:00`. | 20:00, 07:00 |
+| **Location** (`display.night_location`) | For `sun` only. The place for sunrise and sunset. See [Where the box is](#night-color-location). | `timezone` |
+| **Latitude (manual)** and **Longitude (manual)** (`display.night_latitude`, `display.night_longitude`) | For `manual` only. Degrees. North and east are positive. | empty |
+| **Time zone** (`display.night_time_zone`) | The zone of the times on the page and of `schedule`. `system` is the box's own zone. | `system` |
+
+The page shows only the rows that matter for the mode you select.
+
+The temperature slider has a color swatch. The swatch shows white as the panel shows it at that temperature.
+
+The panel has no brightness control that the box can reach. **Night dim** is the only way to make the panel darker.
+
+### When the color changes {#night-color-timing}
+
+With `sun`, the panel starts to warm 60 minutes before sunset. It reaches the night color at sunset. At sunrise, it starts to go back. It reaches the day color 60 minutes after sunrise. **Transition length** sets both times.
+
+With `schedule`, the panel reaches the night color at **Night from**. It starts to go back at **Day from**. The transitions work as with `sun`.
+
+The change is gradual. The display checks the color every 5 seconds, so you never see a step.
+
+The box calculates sunrise and sunset itself. It needs no internet connection for this. Near the poles, the sun can stay up or down all day. Then the panel stays at the day color or at the night color.
+
+### Where the box is {#night-color-location}
+
+- `timezone` uses the main city of the time zone. For example, `America/New_York` gives New York, at 40.71 N, 74.01 W. This is close enough for most places in the zone. Some zones have no city, for example `UTC`. With such a zone, the panel stays at the day color and the page tells you why. Select `manual` then.
+- `internet` asks a web service where the box's public address is. The box asks at most once a day and keeps the answer. Until the first answer, and when the service does not answer, the box uses the time zone. If the connection fails, the box tries once more after a few seconds. If that fails too, it does not ask again until the next day. This is the only night color setting that makes the box contact the internet. It is never on unless you select it.
+- `manual` uses the latitude and longitude that you type. A map service shows them for any place.
+
+### What the card shows {#night-color-state}
+
+At the top of the card:
+
+- The color now: `Day (6500 K)`, `Warming: 4100 K`, `Night (3400 K)` or `Cooling: 4100 K`. A swatch shows white at that color.
+- Today's sunrise and sunset.
+- The next change, for example `Warming starts at 17:15 today`.
+- The location and the time zone.
+
+The card updates every 20 seconds.
+
+### Preview night color {#night-color-preview}
+
+Press **Preview night**. The panel shows the night color for 15 seconds, then goes back. The preview uses the temperature and the dim on the page, also before you save them. Use it in the day to choose a color.
+
+### How the color is made {#night-color-how}
+
+The night color is the white of a glowing black body, like the light of a lamp. The display takes it from the CIE table of black-body colors. It changes the light of each pixel, not the pixel's number. So dark grey stays grey, and white does not turn orange.
+
+The display applies the color itself, as the last step before each frame goes to the screen. It uses no feature of the graphics card. Night color works the same on every screen and in snapshots.
 
 ## Meter ballistics {#meter-ballistics}
 
@@ -205,8 +284,8 @@ The frame that carries the levels holds two readings: the measured PPM (a quasi-
 
 You change the ballistics on the **This box** tab of [Settings](settings), under **Meter ballistics**. [On Air](on-air#meter-ballistics) shows the preset in the settings line of its Program unit and links to it.
 
-1. In the first drop-down, select **this station** or **box default**. This sets which setting you edit.
-2. In the next drop-down, select a preset.
+1. Find the row to change. **Box default** sets every station that has no setting of its own. Each **Station** row sets one station.
+2. In the row's drop-down, select a preset.
 
 The change reaches the native display and every web meter within a second. It stays after a restart.
 

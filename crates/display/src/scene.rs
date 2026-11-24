@@ -257,6 +257,8 @@ pub struct Report {
     pub spectrum_pre: Vec<SpecBar>,
     pub spectrum_bands: usize,
     pub loudness: Vec<(String, String)>,
+    /// The dBFS peak readout drawn: `[L, R]` as shown.
+    pub dbfs_peak: Vec<String>,
     pub segue: Vec<(String, String)>,
     pub upcoming: Vec<String>,
     pub notes: Vec<String>,

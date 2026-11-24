@@ -9,7 +9,7 @@
 #   5. the units' sandboxing holds (no errors in the journal), the journal cap file, the udev rule parses
 # DEVICE is `null` by default (a paced output with no card); on the target box give the real card: DEVICE=hw:CARD=PCH,DEV=0
 # It leaves the box as it found it apart from the imported tones, the two "Acceptance" playlists and the
-# snapshots: the station's toml has only the keys the test needs set (every other line, key and comment is kept)
+# snapshots (a second run reuses the two playlists, emptied and filled again): the station's toml has only the keys the test needs set (every other line, key and comment is kept)
 # and is put back as it was at the end, and the station's state.db is put back too, so the station comes back
 # on the playlist it was on (or, on a box that had no state yet, on its own `default_playlist`) and not on the
 # test tones. Resuming the last playlist after a restart is deliberate (architecture 1.7); this script is what
@@ -89,8 +89,13 @@ for hz in 440 550 660 770 880 990; do
 done
 chmod 644 "$tmp"/*.wav
 hc import "$tmp" > /dev/null
-hc playlist create Acceptance --no-repeat-minutes 0 > /dev/null
-hc playlist create "Acceptance emergency" --mode sequential --no-repeat-minutes 0 > /dev/null
+# A second run finds its own playlists from the first one: they are emptied and filled again, not created twice.
+own_playlist() { # name, then the create options
+    n="$1"; shift
+    if hc playlist list | grep -qF "  $n  ("; then hc playlist clear "$n" > /dev/null; else hc playlist create "$n" "$@" > /dev/null; fi
+}
+own_playlist Acceptance --no-repeat-minutes 0
+own_playlist "Acceptance emergency" --mode sequential --no-repeat-minutes 0
 sqlite3 /var/lib/hotclock/library.db "select id from items" > "$tmp/ids" 2>/dev/null || true
 if [ -s "$tmp/ids" ]; then
     hc playlist add Acceptance $(cat "$tmp/ids") > /dev/null

@@ -8,6 +8,7 @@ pub mod clock;
 pub mod config;
 pub mod localtime;
 pub mod meters;
+pub mod night;
 pub mod timespec;
 pub mod transition;
 

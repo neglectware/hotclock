@@ -61,12 +61,18 @@ pub fn first_entry(pl: &Playlist) -> usize {
 }
 
 /// The one instant of a time that is not a recurrence, or the first one at or after `since` of a
-/// recurrence. `t0` is the level's own start.
-pub fn spec_instant(spec: &TimeSpec, zone: &Zone, t0: i64, since: i64) -> Option<i64> {
+/// recurrence. `t0` is the level's own start, `show` its show time (for a time given from the show time).
+pub fn spec_instant(
+    spec: &TimeSpec,
+    zone: &Zone,
+    t0: i64,
+    show: Option<i64>,
+    since: i64,
+) -> Option<i64> {
     if spec.is_recurring() {
-        spec.first_after(zone, Some(t0), since - 1, 400 * 86_400_000)
+        spec.first_after_show(zone, Some(t0), show, since - 1, 400 * 86_400_000)
     } else {
-        spec.occurrences(zone, Some(t0), i64::MIN / 4, i64::MAX / 4)
+        spec.occurrences_show(zone, Some(t0), show, i64::MIN / 4, i64::MAX / 4)
             .first()
             .copied()
     }
@@ -129,6 +135,31 @@ impl Scheduler {
         self.ev_cache = crate::timed::EventCache::default();
     }
 
+    /// The show time of the level of the program that `playlist_id` runs at from `t0_ms`: the run's moved
+    /// show time for the program's own playlist, otherwise the one on the playlist's `start` block.
+    pub(crate) fn show_ms(&self, playlist_id: i64, t0_ms: i64) -> Option<i64> {
+        if let Some(p) = &self.st.program {
+            let root_t0 = p.stack.first().map_or(p.t0_ms, |c| c.t0_ms);
+            if p.root_playlist() == playlist_id && root_t0 == t0_ms {
+                if let Some(o) = p.show_override_ms {
+                    return Some(o);
+                }
+            }
+        }
+        self.prog
+            .playlists
+            .get(&playlist_id)?
+            .show_time()?
+            .instant(&self.cfg.zone, t0_ms)
+    }
+
+    /// The show time of the level of the running program that started at `t0_ms` (the innermost one).
+    pub(crate) fn show_for_t0(&self, t0_ms: i64) -> Option<i64> {
+        let levels = self.levels();
+        let (pid, t0) = levels.iter().rev().find(|(_, t)| *t == t0_ms)?;
+        self.show_ms(*pid, *t0)
+    }
+
     fn take_over(&mut self) {
         if let Some(p) = self.st.program.as_mut() {
             p.fill = None;
@@ -152,8 +183,14 @@ impl Scheduler {
             Until::Next | Until::Forever => false,
             Until::Count(n) => hold.count >= *n,
             Until::Duration(d) => slot_start >= hold.since_ms + d * 1000,
-            Until::At(spec) => spec_instant(spec, &self.cfg.zone, t0, hold.since_ms)
-                .is_some_and(|t| slot_start >= t),
+            Until::At(spec) => spec_instant(
+                spec,
+                &self.cfg.zone,
+                t0,
+                self.show_for_t0(t0),
+                hold.since_ms,
+            )
+            .is_some_and(|t| slot_start >= t),
         }
     }
 
@@ -166,7 +203,13 @@ impl Scheduler {
     ) -> Option<i64> {
         match &pb.until {
             Until::Duration(d) => Some(hold.since_ms + d * 1000),
-            Until::At(spec) => spec_instant(spec, &self.cfg.zone, t0, hold.since_ms),
+            Until::At(spec) => spec_instant(
+                spec,
+                &self.cfg.zone,
+                t0,
+                self.show_for_t0(t0),
+                hold.since_ms,
+            ),
             _ => None,
         }
     }
@@ -612,8 +655,14 @@ impl Scheduler {
                 let done = match w {
                     WaitUntil::Operator => pr.released,
                     WaitUntil::DurationS(d) => slot_start >= since + d * 1000,
-                    WaitUntil::At(spec) => spec_instant(spec, &self.cfg.zone, pr.t0_ms, since)
-                        .is_none_or(|t| slot_start >= t),
+                    WaitUntil::At(spec) => spec_instant(
+                        spec,
+                        &self.cfg.zone,
+                        pr.t0_ms,
+                        self.show_ms(pr.playlist_id, pr.t0_ms),
+                        since,
+                    )
+                    .is_none_or(|t| slot_start >= t),
                 };
                 if let Some(p) = self.st.program.as_mut() {
                     if done {
@@ -930,6 +979,7 @@ impl Scheduler {
                         spec,
                         &self.cfg.zone,
                         p.t0_ms,
+                        self.show_ms(p.playlist_id, p.t0_ms),
                         p.wait_since.unwrap_or(now_ms),
                     ) {
                         put(t);
@@ -1016,6 +1066,7 @@ impl Scheduler {
                             spec,
                             &self.cfg.zone,
                             p.t0_ms,
+                            self.show_ms(p.playlist_id, p.t0_ms),
                             p.wait_since.unwrap_or(p.t0_ms),
                         ),
                     ),
@@ -1397,32 +1448,42 @@ impl Scheduler {
         r.consumed = true;
     }
 
-    /// `abort` (4.7): end the program without further blocks. What plays now keeps playing; the station
-    /// goes on with its scheduled program or its default playlist at the next boundary.
+    /// The block log's row for an End program (by the operator or by the automatic unload, `by`): block 0 of the
+    /// run that ended, at `now_ms`. The Schedule page's Recent firings lists it.
+    pub fn log_program_end(
+        &mut self,
+        run_id: i64,
+        what: &str,
+        by: &str,
+        now_ms: i64,
+        detail: &str,
+    ) {
+        self.st.log.push(crate::timed::LogRow {
+            run_id: Some(run_id),
+            block_id: 0,
+            name: what.into(),
+            kind: "end_program".into(),
+            target_ms: now_ms,
+            planned_ms: now_ms,
+            fired_ms: Some(now_ms),
+            how: by.into(),
+            deviation_ms: None,
+            detail: detail.into(),
+        });
+    }
+
+    /// `abort` (4.7): end the program for good, without further blocks. What plays now keeps playing; the
+    /// station goes on with its scheduled program or its default playlist, or runs no program.
     pub fn abort_program(
         &mut self,
         now_ms: i64,
         cat: &Catalog,
         timing: &dyn Timing,
     ) -> Result<(), String> {
-        let pr = self.st.program.clone().ok_or("no program is running")?;
-        let next = self
-            .st
-            .scheduled_program
-            .or(self.cfg.default_playlist)
-            .unwrap_or(pr.root_playlist());
-        if let Some(sb) = self
-            .prog
-            .playlists
-            .get(&pr.root_playlist())
-            .filter(|p| p.mode == Mode::Sequential)
-        {
-            let _ = sb;
+        if self.st.program.is_none() {
+            return Err("no program is running".into());
         }
-        // Blocks the program had armed cannot act any more: the new run has a new id.
-        self.start_program_with(next, now_ms, "abort", None);
-        self.st.seq_acts.clear();
-        self.st.bt_display = None;
+        self.close_program(now_ms, "abort");
         self.st.queue.retain(|e| e.pinned || e.committed);
         let mut q = std::mem::take(&mut self.st.queue);
         self.set_times(&mut q, now_ms, cat, timing);
@@ -1760,7 +1821,7 @@ mod tests {
         let z = Zone::utc();
         let spec = TimeSpec::relative(14 * 60_000 + 40_000);
         assert_eq!(
-            spec_instant(&spec, &z, 1_000_000, 0),
+            spec_instant(&spec, &z, 1_000_000, None, 0),
             Some(1_000_000 + 880_000)
         );
     }

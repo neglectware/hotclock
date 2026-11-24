@@ -131,7 +131,16 @@ struct Shared {
     command_drops: AtomicU32,
     outage_ms_total: AtomicU64,
     max_write_ns: AtomicU64,
+    /// The last sound after silence: the frame of its first sample above [`ONSET_LEVEL`], the
+    /// `Clock::monotonic_ns` when the write that carried it returned (it was in the device's buffer
+    /// then), and how many there have been. For the start latency (request to first sound).
+    onset_frame: AtomicU64,
+    onset_ns: AtomicU64,
+    onset_count: AtomicU32,
 }
+
+/// A sample above this (about -80 dBFS) is sound, for the onset detector.
+pub const ONSET_LEVEL: f32 = 1e-4;
 
 /// A copy of the counters at one moment.
 #[derive(Debug, Clone, PartialEq)]
@@ -157,6 +166,11 @@ pub struct Stats {
     pub outage_ms_total: u64,
     /// The longest single `write` call, in nanoseconds (a block-time watchdog).
     pub max_write_ns: u64,
+    /// The last sound after silence: its first frame (on the `frames_written` count) and the
+    /// `Clock::monotonic_ns` when it entered the device's buffer; `onset_count` counts them.
+    pub onset_frame: u64,
+    pub onset_ns: u64,
+    pub onset_count: u32,
 }
 
 impl Stats {
@@ -348,6 +362,9 @@ impl RtHandle {
             command_drops: s.command_drops.load(Acquire),
             outage_ms_total: s.outage_ms_total.load(Acquire),
             max_write_ns: s.max_write_ns.load(Acquire),
+            onset_frame: s.onset_frame.load(Acquire),
+            onset_ns: s.onset_ns.load(Acquire),
+            onset_count: s.onset_count.load(Acquire),
         }
     }
 
@@ -555,6 +572,8 @@ fn rt_main(mut c: RtContext) -> RtContext {
     // Frames at the front of the current block the device has already taken (a partial write
     // before a fault). They are never sent twice.
     let mut sent: usize = 0;
+    // The output has been silent since the last block (for the onset detector).
+    let mut silent = true;
 
     c.shared.state.store(1, Release);
     post(&mut c.events, &c.shared, 0, EventKind::Started);
@@ -562,6 +581,12 @@ fn rt_main(mut c: RtContext) -> RtContext {
     'outer: loop {
         if c.shared.stop.load(Acquire) {
             break;
+        }
+        // Render just in time: wait until the device has room for a block, then take the commands and
+        // render. A block rendered before the wait would hold a start that arrives during it until the
+        // block after (up to two periods); now it sounds in the next block written.
+        if !have_block {
+            c.out.wait_room(period as usize);
         }
 
         // Commands: take new ones, run the due ones in arrival order, keep the rest.
@@ -638,6 +663,19 @@ fn rt_main(mut c: RtContext) -> RtContext {
                 let n = block_frames - sent;
                 if let Some(t) = tap.as_mut() {
                     t.push(written, buf);
+                }
+                // The onset detector: the first sample above the level after a silent block.
+                match buf.iter().position(|s| s.abs() > ONSET_LEVEL) {
+                    Some(i) if silent => {
+                        c.shared
+                            .onset_frame
+                            .store(written + (i / 2) as u64, Relaxed);
+                        c.shared.onset_ns.store(c.clock.monotonic_ns(), Relaxed);
+                        c.shared.onset_count.fetch_add(1, Release);
+                        silent = false;
+                    }
+                    Some(_) => {}
+                    None => silent = true,
                 }
                 written += n as u64;
                 ramp.advance(n);

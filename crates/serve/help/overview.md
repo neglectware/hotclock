@@ -29,7 +29,7 @@ This documentation describes what the installed version does. Features that are 
 | Programming | Shuffle and sequential playlists, no-repeat rules, insert rules, timed blocks (insert, play, switch playlist, stop, fade and stop, end), blocks in sequence (play, wait, loop, stop, end, switch playlist), nested playlists, back-timing, gain and mute, blocks that send OSC, MIDI or web requests, program control (start, abort, continue, fire, skip), scheduled starts, station blocks, one-shot changes, a dry run, example programs | Listening for the console's own OSC messages |
 | Sound | Output trim, safety limiter, meters and spectrum, the loudness controller with presets, the processing chain (AGC, equalizer, 2 to 6 band compressor, optional blocks, limiter) with presets for every block and for the whole chain | An external processor stage |
 | Output | Sound card, lossless network stream | Other stream codecs |
-| Monitoring | Alerts, email notifications, as-run history, the status display on the box's own monitor, a Stream Deck plugin | |
+| Monitoring | Alerts, email notifications, as-run history, the status display on the box's own monitor (with night color), a Stream Deck plugin | |
 | Operation | Create, rename and delete stations from the web page (Stations), backup and restore, health-checked upgrade and rollback, Plex playlist import | |
 
 ## Conventions

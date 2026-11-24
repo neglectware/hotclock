@@ -47,30 +47,7 @@
       <div id="fields"></div>
       <div id="action-error" class="error" hidden></div>
     </section>
-    <section id="face-section">
-      <h2>Key face</h2>
-      <div class="row">
-        <label for="f-label">Label</label>
-        <input id="f-label" type="text" placeholder="the key's own text" spellcheck="false" autocomplete="off" />
-      </div>
-      <div class="row">
-        <label for="f-color">Label color</label>
-        <div class="inline"><input id="f-color" type="color" value="#f4f5f7" /><button id="f-color-clear" type="button">Default</button></div>
-      </div>
-      <div class="row">
-        <label for="f-img">Image</label>
-        <div class="inline"><input id="f-img" type="file" accept="image/png,image/jpeg,image/gif,image/webp,image/svg+xml" /><button id="f-img-clear" type="button">Remove</button></div>
-      </div>
-      <div class="row">
-        <label for="f-img2">Image when lit</label>
-        <div class="inline"><input id="f-img2" type="file" accept="image/png,image/jpeg,image/gif,image/webp,image/svg+xml" /><button id="f-img2-clear" type="button">Remove</button></div>
-      </div>
-      <div class="row">
-        <label></label>
-        <div class="inline"><input id="f-tint" type="checkbox" /><span>Tint the image green when lit</span></div>
-      </div>
-      <p class="hint">Lit: the key's active state (the program runs, the playlist is on air, the hold is on). With nothing set, the key keeps its own face.</p>
-    </section>
+    <p class="hint" id="title-hint">The key's label is the app's <b>Title</b> field, in the app's font, size, color and position. The key has two states: off (grey) and on (green: the program runs, the playlist is on air, the hold is on). Change their pictures in the app. With no title, the key shows its own label.</p>
   </div>
   <script src="pi.js"></script>
 </body>

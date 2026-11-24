@@ -35,11 +35,15 @@ The station never runs a block with this error. To correct it, open the block wi
 
 **Error.** `two timed flow blocks at the same time in one playlist`. Two blocks that decide what plays are set for the same moment, so neither one can win. Move one of them.
 
-This check compares times after T0 and times of day. Recurrences are exempt.
+This check compares times after T0, times of day and times from the show time. Recurrences are exempt.
 
 ### `times_backward`
 
 **Error.** `timed flow blocks whose times run backward in list order`. A block lower in the list has an earlier time than a block above it. Put the entries in an order where the times increase down the list, or change the times.
+
+### `no_show_time`
+
+**Error.** `this block is timed from the show time, and the playlist's start block has none`. A block is timed before or after the show time, and the playlist's Start block does not give one. Set **Show time** on the Start block, or give the block another kind of time. See [Timed blocks](timed-blocks#show-time).
 
 ### `nesting_cycle`
 

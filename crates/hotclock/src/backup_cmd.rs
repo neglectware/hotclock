@@ -194,7 +194,6 @@ pub fn restore(a: RestoreArgs, global: &Path) -> ExitCode {
             failed = true;
             continue;
         }
-        own_like_parent(live);
         println!("restored {name}");
     }
     // A station's rows for the library (`library_outbox`) carry ids the library remembers having applied.
@@ -208,6 +207,12 @@ pub fn restore(a: RestoreArgs, global: &Path) -> ExitCode {
         }
     }
     drop(locks);
+    // Everything the restore wrote or created runs as root: the databases, their `-wal`/`-shm` (the outbox
+    // step opens them), the stations' `state.db.lock` and any directory made for a wiped station. Left owned
+    // by root, the station could not open them ("Permission denied"); they get the owner of the state tree.
+    for (_, live, _, _) in &plan {
+        own_like_data_dir(&data, live);
+    }
     if failed {
         ExitCode::FAILURE
     } else {
@@ -216,11 +221,31 @@ pub fn restore(a: RestoreArgs, global: &Path) -> ExitCode {
     }
 }
 
-/// A file made by root during a restore belongs to the service user: the owner of its directory.
-fn own_like_parent(p: &Path) {
+/// A restored database, its `-wal`, `-shm` and `.lock`, and the directories between it and the data directory
+/// belong to the owner of the data directory (the service user), as the rest of the state tree does.
+fn own_like_data_dir(data: &Path, live: &Path) {
     use std::os::unix::fs::MetadataExt;
-    if let Some(m) = p.parent().and_then(|d| std::fs::metadata(d).ok()) {
+    let Ok(m) = std::fs::metadata(data) else {
+        return;
+    };
+    let own = |p: &Path| {
         let _ = std::os::unix::fs::chown(p, Some(m.uid()), Some(m.gid()));
+    };
+    for suffix in ["", "-wal", "-shm", ".lock"] {
+        let mut p = live.as_os_str().to_owned();
+        p.push(suffix);
+        let p = PathBuf::from(p);
+        if p.exists() {
+            own(&p);
+        }
+    }
+    let mut d = live.parent();
+    while let Some(x) = d {
+        if x == data || !x.starts_with(data) {
+            break;
+        }
+        own(x);
+        d = x.parent();
     }
 }
 

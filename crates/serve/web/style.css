@@ -133,7 +133,10 @@ html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
 .srow.dirty { background: rgba(200, 160, 40, .10); }
 @media (max-width: 800px) { .srow { grid-template-columns: 1fr; } }
 .srow > div { min-width: 0; }
+.srow > div > .mono { overflow-wrap: anywhere; }
 .srow select { max-width: 100%; text-overflow: ellipsis; }
+.night-panel { display: grid; gap: 6px; padding: 10px 0 12px; }
+.night-swatch { display: inline-block; width: 28px; height: 20px; border-radius: 4px; border: 1px solid var(--line); flex: none; }
 /* Schedule: the weekly grid (9) */
 .wgrid { display: grid; grid-template-columns: 52px repeat(7, 1fr); border: 1px solid var(--line); border-radius: 6px; overflow: hidden; margin-top: 8px; }
 .wgrid .whead { background: var(--panel2); padding: 4px 6px; text-align: center; font-size: 12px; color: var(--dim); border-bottom: 1px solid var(--line); }

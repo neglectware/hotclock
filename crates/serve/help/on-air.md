@@ -52,6 +52,8 @@ Two thin bars show the left and right levels of the program after the safety lim
 - **W**: the loudness of the last four minutes.
 - **I**: integrated since the station started.
 
+Beside the two bars, **dBFS peak** shows the sample peak of each channel, **L** and **R**, to 0.1 dB, held for one second. This is what a mixer's meter shows. Use it to line up a mixer input (see [Line up a mixer input](output-and-level#line-up)). The full layout of the status display shows the same numbers as `PEAK L -17.3  R -17.3 dBFS`.
+
 The bars follow the [meter ballistics](#meter-ballistics). See [The processing chain](processing) for what happens before the bars.
 
 ### Coming up
@@ -139,7 +141,8 @@ When the no-repeat rule cannot be kept, a notice says so, for example `No repeat
 
 A program with blocks shows more:
 
-- **The expected start.** When a playlist's Start block says when the show is expected, a line counts down to it, for example `Weekly show, expected 18:45`. An `armed` chip shows that the fallback start is on.
+- **The expected start.** When a playlist's Start block says when the show is expected, a line counts down to it, for example `Weekly show, expected 18:45`. When the expected start is not today, the line gives the day: `expected tomorrow 18:45` or `expected Mon 19 Oct 18:45`. An `armed` chip shows that the fallback start is on.
+- **The show time.** When the Start block has a show time, a line shows it and counts down to it, for example `Show time 19:00:00 14:39`. **+1 min** and **+5 min** move it later. Type a time and press **Move** to set it. A moved show time has a `moved` chip, and **Put back** returns it to the playlist's time. Every block timed from the show time moves with it, for this run only. See [Timed blocks](timed-blocks#show-time).
 - **The cursor.** For example `row 4, block 4 of 8`. When a Play block runs a nested playlist, a line shows the chain, for example `Show (row 2) > Pre-show (row 1)`.
 - **The back-timing line.** This line appears when a Play block is back-timed. `END +3 s` is the planned end minus the end time, so plus is late. The line is green when the plan is on target, amber within the tolerance and red in fallback. The word for its state follows. See [The block engine](block-engine#back-timing).
 - **The rundown.** One row for each block. The columns are the row number, the badge, the name (with `in sequence` or `at a time` under it), **At** (the time the block acts), **In** (the time to go) and the status. The time to go turns amber under 60 seconds and red under 10 seconds. The block where the program is now is highlighted. The rows of finished blocks are dim. On a phone, At and In move under the name.
@@ -165,7 +168,31 @@ The **⋯** menu in the header has these items:
 - **End program, music continues** ends the program. No more blocks run. The music on air keeps playing.
 - **End program and stop the audio** ends the program and the audio stops too.
 
+An ended program stays ended. Its timed blocks never run, also after a restart of the station. The station goes on with its default playlist. A station with no default playlist runs no program until the next start. Then it is quiet when the music on air ends, and this is not an alarm.
+
+**End program and stop the audio** also clears the screens. The queue empties. The Program unit says `No program is running.` When the audio has stopped, the status display and the browser display drop the last item. They show the station as stopped with nothing on air.
+
 Each **End** item fires only when you **hold it for one second**. A click does nothing.
+
+The Schedule page lists each **End** under **Recent firings**. The **How** column says `operator` when you ended the program. It says `automatic` when the station ended it. See [Unload a stopped program](#unload).
+
+### Unload a stopped program {#unload}
+
+A program can stop and stay loaded. Its own Stop block stops it, or you press **Stop**. The Program unit then shows the program as `STOPPED`. The status display keeps the last item on the screen.
+
+The station unloads such a program by itself. After 5 minutes stopped, it runs **End program and stop the audio**. It is the same action as the **⋯** menu's item. The screens change as they do when you choose it.
+
+While the time runs, the Program unit shows a note: `Unloads in 4:12`. Press **Keep loaded** in the note to keep the program loaded. The program then stays loaded until you end it or it starts again.
+
+The count stops when something starts. Play, **Next**, a program start or a playlist switch stops it. Any other action on the station also cancels it for this stop. For example, add an item to the queue, or press **Continue**, **Fire** or **Skip**. A new stop starts a new count.
+
+The count starts when the audio has stopped. A stop's fade ends first. A station that is held is not stopped, so **Hold** does not start a count.
+
+A restart of the station keeps the count. The count goes on from the time of the stop. When the station comes back after the time has run out, it unloads the program at once.
+
+A scheduled program still starts at its time.
+
+**Set the time.** Open [Settings](#/settings/__global), the **This box** tab. Under **Programs and playback**, pick a time in **Unload a stopped program after** (`programs.unload_after_min`). The choices are 1, 2, 5, 10, 15, 30 and 60 minutes, and **Never**. The default is 5 minutes. **Never** keeps a stopped program loaded until you end it. The setting applies to every station. It applies at once, also to a count that runs: the count keeps the time of the stop. The [Settings reference](settings-reference#global-programs-and-playback) lists it.
 
 ### The settings line {#settings-line}
 

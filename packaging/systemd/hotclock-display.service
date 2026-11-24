@@ -1,7 +1,10 @@
 # The status display (architecture 11, M7): draws the stations' status on the box's own monitor through KMS,
 # on the text console of tty1, with no X, Wayland or browser. It is a client of the stations' WebSockets and
-# the library service's `display` topic and writes nothing but its own last view, so a failure here cannot
-# touch the audio. Not enabled by the package: `systemctl enable --now hotclock-display` on a box with a screen.
+# the library service's `display` topic and writes nothing but its own state directory, so a failure here
+# cannot touch the audio. On or off is `display.enabled` in /etc/hotclock/hotclock.toml (Settings, Status display; on by
+# default): the library service starts and stops this unit when it changes, the generator
+# (hotclock-stations-generator) wants it at boot while it is on, and ExecCondition= below keeps it stopped while it is
+# off, whatever pulls it in. Not enabled by the package; `systemctl enable` is not needed (see deploy.md).
 [Unit]
 Description=Hotclock status display
 Documentation=file:///usr/share/doc/hotclock/deploy.md
@@ -24,6 +27,8 @@ TTYPath=/dev/tty1
 TTYReset=yes
 TTYVHangup=yes
 TTYVTDisallocate=yes
+# Exit 1 (skip: the unit stays inactive, not failed, and Restart= does not apply) when display.enabled is off.
+ExecCondition=/usr/bin/hotclock display --check-enabled
 ExecStart=/usr/bin/hotclock display
 Restart=always
 RestartSec=2

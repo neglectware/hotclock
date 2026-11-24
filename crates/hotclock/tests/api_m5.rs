@@ -50,6 +50,24 @@ fn the_program_endpoints_the_dry_run_and_the_example() {
     let monday = r.json();
     let mid = monday["id"].as_i64().unwrap();
     assert_eq!(monday["mode"], "sequential");
+    // The list says how many blocks a playlist has: a program (sequential, with blocks) is not a playlist switch.
+    let listed = get(&lb, "/api/v1/playlists").json()["playlists"].clone();
+    let row = listed
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|p| p["id"] == mid)
+        .unwrap()
+        .clone();
+    assert_eq!(row["blocks"], 6, "{row}");
+    let rot_row = listed
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|p| p["id"] == rot)
+        .unwrap()
+        .clone();
+    assert_eq!(rot_row["blocks"], 0, "{rot_row}");
     let kinds: Vec<String> = monday["entries"]
         .as_array()
         .unwrap()
@@ -192,6 +210,37 @@ fn the_program_endpoints_the_dry_run_and_the_example() {
         assert_eq!(r["program"]["t0_source"], src);
         assert!(r["program"]["t0"].as_str().unwrap() > s["program"]["t0"].as_str().unwrap());
     }
+    // A plain playlist switch (a Start / Switch Playlist key, the API) or a one-time change never loads a program: it
+    // would start the show's blocks with no program start (eve, 2026-10-12). The running program is untouched.
+    let before = get(&st, "/api/v1/program/state").json()["program"]["t0"].clone();
+    let r = post(
+        &st,
+        "/api/v1/playlist/switch",
+        &json!({"playlist_id": mid, "how": "now"}),
+    );
+    assert_eq!(r.status, 409, "{}", r.text());
+    assert!(r.text().contains("is a program"), "{}", r.text());
+    assert!(
+        r.text().contains("Start Playlist as Program"),
+        "{}",
+        r.text()
+    );
+    let at = chrono_like_in_minutes(10);
+    let r = post(
+        &st,
+        "/api/v1/schedule/changes",
+        &json!({"playlist_id": mid, "at": at}),
+    );
+    assert!(
+        r.status >= 400 && r.text().contains("is a program"),
+        "{} {}",
+        r.status,
+        r.text()
+    );
+    assert_eq!(
+        get(&st, "/api/v1/program/state").json()["program"]["t0"],
+        before
+    );
     // A press meant for another station, or from a key with no station, never starts anything here.
     let r = post(
         &st,
@@ -415,4 +464,30 @@ fn monday_block(lb: &str, playlist: i64, kind: &str) -> i64 {
         .unwrap()["block"]["id"]
         .as_i64()
         .unwrap()
+}
+
+/// An RFC 3339 time `m` minutes from now (UTC).
+fn chrono_like_in_minutes(m: i64) -> String {
+    let t = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_secs() as i64
+        + m * 60;
+    let (days, secs) = (t.div_euclid(86_400), t.rem_euclid(86_400));
+    // civil date from days since 1970-01-01 (Howard Hinnant's algorithm)
+    let z = days + 719_468;
+    let era = z.div_euclid(146_097);
+    let doe = z - era * 146_097;
+    let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let d = doy - (153 * mp + 2) / 5 + 1;
+    let mo = if mp < 10 { mp + 3 } else { mp - 9 };
+    let y = yoe + era * 400 + i64::from(mo <= 2);
+    format!(
+        "{y:04}-{mo:02}-{d:02}T{:02}:{:02}:{:02}Z",
+        secs / 3600,
+        secs / 60 % 60,
+        secs % 60
+    )
 }

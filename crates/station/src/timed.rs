@@ -494,6 +494,12 @@ impl Scheduler {
                 use std::hash::{Hash, Hasher};
                 let mut h = std::collections::hash_map::DefaultHasher::new();
                 self.levels().hash(&mut h);
+                // Moving the show time moves every block timed from it.
+                self.st
+                    .program
+                    .as_ref()
+                    .and_then(|p| p.show_override_ms)
+                    .hash(&mut h);
                 h.finish() as usize
             },
         );
@@ -538,7 +544,26 @@ impl Scheduler {
         } else {
             (t.early_ms(), t.late_ms())
         };
-        for target in t.spec.occurrences(&self.cfg.zone, t0, after, upto) {
+        let show = match (playlist, t0) {
+            (Some(pid), Some(lt0)) if t.spec.needs_show() => self.show_ms(pid, lt0),
+            _ => None,
+        };
+        // A block timed from the show time happens once a run: moving the show time after it acted does not
+        // make it act again at the new time.
+        if t.spec.needs_show()
+            && self
+                .st
+                .log
+                .rows
+                .iter()
+                .any(|r| r.block_id == b.id && r.run_id == run_id && r.kind != "back_time")
+        {
+            return;
+        }
+        for target in t
+            .spec
+            .occurrences_show(&self.cfg.zone, t0, show, after, upto)
+        {
             if self.st.log.has(run_id, b.id, target) {
                 continue;
             }
@@ -1865,17 +1890,11 @@ impl Scheduler {
         self.st.queue.retain(|e| e.pinned);
     }
 
-    /// The program ends: the station goes to its scheduled program or its default playlist (4.4).
+    /// The program ends: the station goes to its scheduled program or its default playlist (4.4), or runs no
+    /// program; never the same program again.
     fn end_program(&mut self, now_ms: i64, cat: &Catalog, timing: &dyn Timing) {
-        let next = self
-            .st
-            .scheduled_program
-            .or(self.cfg.default_playlist)
-            .or(self.st.program.as_ref().map(|p| p.playlist_id));
         self.st.queue.retain(|e| e.pinned);
-        if let Some(n) = next {
-            self.start_program_with(n, now_ms, "ended", None);
-        }
+        self.close_program(now_ms, "ended");
         let mut q = std::mem::take(&mut self.st.queue);
         self.set_times(&mut q, now_ms, cat, timing);
         self.st.queue = q;
@@ -2061,8 +2080,11 @@ impl Scheduler {
         early_s: i64,
         late_s: i64,
     ) -> Result<i64, String> {
-        if !self.prog.playlists.contains_key(&playlist_id) {
+        let Some(pl) = self.prog.playlists.get(&playlist_id) else {
             return Err(format!("no playlist {playlist_id}"));
+        };
+        if let Some(why) = pl.refuse_switch() {
+            return Err(why);
         }
         let id = self.st.next_oneshot_id.max(1);
         self.st.next_oneshot_id = id + 1;

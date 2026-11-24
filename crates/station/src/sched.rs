@@ -268,6 +268,10 @@ pub struct ProgramRun {
     /// The back-timing plan of the `play` block that is filling, for the status (4.9).
     #[serde(default)]
     pub bt: Option<BackStatus>,
+    /// The show time moved for this run only (`POST /program/show-time`), ms. It replaces the show time of
+    /// the program's own playlist (the outermost level); the next run starts from the playlist's again.
+    #[serde(default)]
+    pub show_override_ms: Option<i64>,
 }
 
 /// `back_time` of `GET /program/state` and the `program` event (4.9).
@@ -437,6 +441,10 @@ pub struct SchedState {
     /// program ends (4.4).
     #[serde(default)]
     pub scheduled_program: Option<i64>,
+    /// The program was ended by hand (`abort`) or by an `end` block and the station had no other playlist to
+    /// go on with: it runs no program until a start. A restart keeps it so (it never picks a playlist then).
+    #[serde(default)]
+    pub program_closed: bool,
     /// Timed blocks a clock step over their time told to fire once, now: `(block id, target)`.
     #[serde(default)]
     pub jump_fire: Vec<(i64, i64)>,
@@ -453,6 +461,10 @@ pub struct SchedState {
     /// stays until the end time has passed, even when the plan is dealt and the program has moved on.
     #[serde(default)]
     pub bt_display: Option<BackStatus>,
+    /// The countdown to unloading a program that stopped and stays stopped (`crate::unload`). Kept here so a
+    /// restart neither loses nor restarts it.
+    #[serde(default)]
+    pub unload: crate::unload::UnloadTimer,
 }
 
 /// What an operation did to the head of the queue.
@@ -573,11 +585,13 @@ impl Scheduler {
                 oneshots: Vec::new(),
                 next_oneshot_id: 1,
                 scheduled_program: None,
+                program_closed: false,
                 jump_fire: Vec::new(),
                 seq_acts: Vec::new(),
                 arms: Vec::new(),
                 hand_fire: Vec::new(),
                 bt_display: None,
+                unload: Default::default(),
             },
             relaxed_picks: 0,
             times_sig: None,
@@ -1433,6 +1447,7 @@ impl Scheduler {
             .get(&playlist_id)
             .and_then(|p| p.start_block())
             .is_some_and(|(_, s)| s.anchor == crate::programming::Anchor::Manual);
+        self.st.program_closed = false;
         self.st.program = Some(ProgramRun {
             playlist_id,
             t0_ms,
@@ -1454,8 +1469,37 @@ impl Scheduler {
             epoch: 0,
             ended: false,
             bt: None,
+            show_override_ms: None,
         });
         self.ev_cache = EventCache::default();
+    }
+
+    /// The program ends for good (`abort`, an `end` block): none of its blocks acts any more, and the station goes
+    /// on with its scheduled program or its default playlist, never the program that just ended (that started it
+    /// again with T0 = now, and its timed blocks fired 15 minutes later on a stopped station). With no other
+    /// playlist the station runs no program until a start.
+    pub fn close_program(&mut self, now_ms: i64, t0_source: &str) {
+        let root = self.st.program.as_ref().map(|p| p.root_playlist());
+        if self.st.scheduled_program.is_some() && self.st.scheduled_program == root {
+            self.st.scheduled_program = None;
+        }
+        let next = self
+            .st
+            .scheduled_program
+            .or(self.cfg.default_playlist)
+            .filter(|n| Some(*n) != root && self.prog.playlists.contains_key(n));
+        self.st.seq_acts.clear();
+        self.st.jump_fire.clear();
+        self.st.bt_display = None;
+        self.armed_acts.clear();
+        match next {
+            Some(n) => self.start_program_with(n, now_ms, t0_source, None),
+            None => {
+                self.st.program = None;
+                self.st.program_closed = true;
+                self.ev_cache = EventCache::default();
+            }
+        }
     }
 
     // ---- what starts ------------------------------------------------------------------------------------

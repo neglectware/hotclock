@@ -11,7 +11,18 @@ const APPLY = {
   station_restart: ['restart station', 'warn', 'The station reads this when it starts.'],
   library_restart: ['restart library', 'warn', 'The library service reads this when it starts.'],
   display_restart: ['restart display', 'warn', 'The status display reads this when it starts. Restarting it only blanks the screen for a second; the stations are not touched.'],
+  display_switch: ['starts or stops at once', 'ok', 'Saving starts or stops the status display at once. The box follows the same switch at every boot.'],
 };
+// A plain-words name shown above the key, for the keys that have one.
+const LABELS = {
+  'display.enabled': 'Status display on this box\'s monitor',
+  'programs.unload_after_min': 'Unload a stopped program after',
+  'display.night_mode': 'Night color', 'display.night_kelvin': 'Night temperature', 'display.night_dim_percent': 'Night dim',
+  'display.night_transition_min': 'Transition length', 'display.night_on': 'Night from (schedule)', 'display.night_off': 'Day from (schedule)',
+  'display.night_location': 'Location', 'display.night_latitude': 'Latitude (manual)', 'display.night_longitude': 'Longitude (manual)',
+  'display.night_time_zone': 'Time zone',
+};
+const NIGHT_GROUP = 'Status display: night color';
 const GROUPS = [
   ['Identity', ['name', 'display_name', 'listen']],
   ['Sound output', ['device', 'rate', 'period_frames', 'periods', 'formats', 'rate_trim_ppm']],
@@ -25,7 +36,7 @@ const GROUPS = [
   ['Processing chain: Input high-pass', ['chain.highpass.enabled', 'chain.highpass.freq_hz', 'chain.highpass.order']],
   ['Processing chain: Phase rotator', ['chain.rotator.enabled', 'chain.rotator.freq_hz', 'chain.rotator.sections']],
   ['Processing chain: Stereo enhancer', ['chain.stereo.enabled', 'chain.stereo.width']],
-  ['Processing chain: Wideband AGC', ['chain.agc.enabled', 'chain.agc.target_dbfs', 'chain.agc.max_gain_db', 'chain.agc.max_reduction_db', 'chain.agc.down_db_per_s', 'chain.agc.up_db_per_s', 'chain.agc.detector_ms', 'chain.agc.program_ms', 'chain.agc.gate_db', 'chain.agc.fast_attack_ms', 'chain.agc.fast_trigger_db']],
+  ['Processing chain: Wideband AGC', ['chain.agc.enabled', 'chain.agc.target_dbfs', 'chain.agc.max_gain_db', 'chain.agc.max_reduction_db', 'chain.agc.down_db_per_s', 'chain.agc.up_db_per_s', 'chain.agc.detector_ms', 'chain.agc.program_ms', 'chain.agc.gate_db', 'chain.agc.fast_clamp', 'chain.agc.fast_attack_ms', 'chain.agc.fast_trigger_db', 'chain.agc.hold_s', 'chain.agc.ratio']],
   ['Processing chain: Equalizer', ['chain.eq.enabled', 'chain.eq.position', 'chain.eq.bands', 'chain.eq.b1_on', 'chain.eq.b1_type', 'chain.eq.b1_hz', 'chain.eq.b1_db', 'chain.eq.b1_q', 'chain.eq.b2_on', 'chain.eq.b2_type', 'chain.eq.b2_hz', 'chain.eq.b2_db', 'chain.eq.b2_q', 'chain.eq.b3_on', 'chain.eq.b3_type', 'chain.eq.b3_hz', 'chain.eq.b3_db', 'chain.eq.b3_q', 'chain.eq.b4_on', 'chain.eq.b4_type', 'chain.eq.b4_hz', 'chain.eq.b4_db', 'chain.eq.b4_q', 'chain.eq.b5_on', 'chain.eq.b5_type', 'chain.eq.b5_hz', 'chain.eq.b5_db', 'chain.eq.b5_q', 'chain.eq.b6_on', 'chain.eq.b6_type', 'chain.eq.b6_hz', 'chain.eq.b6_db', 'chain.eq.b6_q', 'chain.eq.b7_on', 'chain.eq.b7_type', 'chain.eq.b7_hz', 'chain.eq.b7_db', 'chain.eq.b7_q', 'chain.eq.b8_on', 'chain.eq.b8_type', 'chain.eq.b8_hz', 'chain.eq.b8_db', 'chain.eq.b8_q']],
   ['Processing chain: Bass enhancer', ['chain.bass.enabled', 'chain.bass.freq_hz', 'chain.bass.amount_pct', 'chain.bass.drive']],
   ['Processing chain: Multiband compressor', ['chain.multiband.enabled', 'chain.multiband.crossovers_hz', 'chain.multiband.threshold_dbfs', 'chain.multiband.ratio', 'chain.multiband.knee_db', 'chain.multiband.attack_ms', 'chain.multiband.release_ms', 'chain.multiband.makeup_db']],
@@ -34,7 +45,9 @@ const GROUPS = [
   ['Processing chain: Clipper', ['chain.clipper.enabled', 'chain.clipper.threshold_dbfs', 'chain.clipper.softness_db']],
   ['Processing chain: True-peak limiter', ['chain.limiter.enabled', 'chain.limiter.ceiling_dbtp']],
   ['Global', ['data_dir', 'stations_dir', 'run_dir', 'time_zone', 'library.listen', 'brand.display_name', 'allowed_hosts', 'secrets_file']],
-  ['Status display (the box\'s own monitor)', ['display.mode', 'display.diagonal_in', 'display.view_distance_cm', 'display.default_view', 'display.bar_product', 'display.bar_clock', 'display.bar_date', 'display.bar_cpu', 'display.bar_network', 'display.rotate_pin_on_alert', 'display.rotate_processing', 'display.proc_range_db', 'display.proc_spectrum', 'display.mini_processing', 'display.processing_view', 'display.spectrum_source', 'display.bypassed_stages', 'display.curve_range_db', 'display.curve_include_makeup', 'display.connector', 'display.device']],
+  ['Programs and playback', ['programs.unload_after_min']],
+  ['Status display (the box\'s own monitor)', ['display.enabled', 'display.mode', 'display.diagonal_in', 'display.view_distance_cm', 'display.default_view', 'display.bar_product', 'display.bar_clock', 'display.bar_date', 'display.bar_cpu', 'display.bar_network', 'display.rotate_pin_on_alert', 'display.rotate_processing', 'display.proc_range_db', 'display.proc_spectrum', 'display.mini_processing', 'display.processing_view', 'display.spectrum_source', 'display.bypassed_stages', 'display.curve_range_db', 'display.curve_include_makeup', 'display.connector', 'display.device']],
+  [NIGHT_GROUP, ['display.night_mode', 'display.night_kelvin', 'display.night_dim_percent', 'display.night_transition_min', 'display.night_on', 'display.night_off', 'display.night_location', 'display.night_latitude', 'display.night_longitude', 'display.night_time_zone']],
 ];
 const fmtDefault = v => v === null ? '(none)' : Array.isArray(v) ? (v.join(', ') || '(none)') : String(v);
 const CROSSFADE_WORDS = { basic: 'plain crossfade', plexamp: 'Plexamp-style', sam: 'SAM-style', fm: 'FM-style', none: 'gapless, no overlap' };
@@ -103,7 +116,9 @@ routes.settings = async args => {
     { const named = new Set(groups.flatMap(g => g[1])), left = data.catalog[t.scope].map(d => d.key).filter(k => !named.has(k)); if (left.length) groups.push(['Other', left]); }
     for (const [title, keys] of groups) {
       const card = h('div', { class: 'card', style: 'margin-top:14px' }, h('h3', {}, title, helpLink('settings-reference', `${t.scope}-${title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')}`)));
+      if (title === NIGHT_GROUP) card.append(nightPanel(data.display_night, controls));
       for (const k of keys) if (defs[k]) card.append(fieldRow(defs[k]));
+      if (title === NIGHT_GROUP) nightRowsFollowMode(card, controls);
       body.append(card);
     }
     if (t.scope === 'global') body.append(meterBallisticsCard(data.stations.map(x => x.id)));
@@ -117,14 +132,14 @@ routes.settings = async args => {
       const explicit = d.key in b.values;
       const eff = b.effective[d.key];
       const row = h('div', { class: 'srow', 'data-key': d.key });
-      const label = h('div', {}, h('div', { class: 'mono' }, d.key), h('div', {}, applyChip(d.apply), explicit ? '' : h('span', { class: 'dim', style: 'margin-left:6px' }, 'default')));
+      const label = h('div', {}, LABELS[d.key] ? h('div', { style: 'font-weight:600' }, LABELS[d.key]) : null, h('div', { class: 'mono' }, d.key), h('div', {}, applyChip(d.apply), explicit ? '' : h('span', { class: 'dim', style: 'margin-left:6px' }, 'default')));
       const err = h('div', { class: 'dim', style: 'color:var(--red)' });
       const c = control(d, eff);
       const reset = h('button', { title: 'Remove the key from the file; the default applies', onclick: () => { removed.add(d.key); c.set(d.default); row.classList.add('dirty'); } }, 'default');
       controls[d.key] = { c, err, d, initial: eff, explicit };
       row.addEventListener('input', () => { removed.delete(d.key); row.classList.add('dirty'); });
       row.addEventListener('change', () => { removed.delete(d.key); row.classList.add('dirty'); });
-      row.append(label, h('div', {}, h('div', { class: 'row' }, c.el, d.kind === 'readonly' ? null : reset), err),
+      row.append(label, h('div', {}, h('div', { class: 'row' }, c.el, d.kind === 'readonly' ? null : reset), d.key === 'display.enabled' ? displayState(data.display_status) : null, err),
         h('div', { class: 'dim' }, d.help, h('div', { style: 'font-size:12px' }, 'Default: ', fmtDefault(d.default), (d.kind === 'int' || d.kind === 'float') && d.max ? `  (${d.min} to ${d.max})` : '')));
       return row;
     }
@@ -134,13 +149,25 @@ routes.settings = async args => {
         case 'readonly': return { el: h('span', { class: 'mono' }, b.values[d.key] ?? t.id), get: () => undefined, set: () => { } };
         case 'bool': { const e = h('input', { type: 'checkbox', checked: !!v }); return { el: e, get: () => e.checked, set: x => { e.checked = !!x; } }; }
         case 'int': case 'float': {
+          if (d.key === 'display.night_kelvin' || d.key === 'display.night_dim_percent') return nightSlider(d, v, data.display_night);
           if (d.options.length) { const e = h('select', {}, d.options.map(o => h('option', { value: o, selected: +o === +v }, o))); return { el: e, get: () => +e.value, set: x => { e.value = String(x); } }; }
           const e = h('input', { type: 'number', value: v, step: d.kind === 'int' ? 1 : 'any', min: d.min, max: d.max || null, style: 'width:140px' });
           return { el: e, get: () => e.value === '' ? null : +e.value, set: x => { e.value = x; } };
         }
         case 'device': return selectWithOther(data.devices.map(x => [x.value, x.label]), v);
+        case 'zone': {
+          const e = h('select', { 'data-zone': '1' }, h('option', { value: 'system', selected: v === 'system' }, `system (${data.system_zone})`), (data.zones || []).map(z => h('option', { value: z, selected: z === v }, z)));
+          if (v !== 'system' && !(data.zones || []).includes(v)) e.append(h('option', { value: v, selected: true }, v));
+          return { el: e, get: () => e.value, set: x => { e.value = x; } };
+        }
         case 'playlist': return selectWithOther([['', '(none)'], ...data.playlists.map(n => [n, n])], v ?? '', true);
         case 'preset': { const e = h('select', {}, data.presets.map(p => h('option', { value: p.name, selected: p.name === v }, `${p.name}: ${p.description}`))); return { el: e, get: () => e.value, set: x => { e.value = x; } }; }
+        case 'minutes_or_never': {
+          // minutes, or "never"; a value the file has that the list does not offer is kept as its own choice
+          const opts = d.options.map(String); if (!opts.includes(String(v))) opts.push(String(v));
+          const e = h('select', {}, opts.map(o => h('option', { value: o, selected: o === String(v) }, o === 'never' ? 'Never' : `${o} ${+o === 1 ? 'minute' : 'minutes'}`)));
+          return { el: e, get: () => e.value === 'never' ? 'never' : +e.value, set: x => { e.value = String(x); } };
+        }
         case 'choice': { const e = h('select', {}, d.options.map(o => h('option', { value: o, selected: o === v }, o))); return { el: e, get: () => e.value, set: x => { e.value = x; } }; }
         case 'numlist': { const e = h('input', { type: 'text', value: (v || []).join(', '), style: 'width:100%', placeholder: '120, 500, 2000, 6000' }); return { el: e, get: () => e.value.split(',').map(x => x.trim()).filter(Boolean).map(Number), set: x => { e.value = (x || []).join(', '); } }; }
         case 'formats': case 'list': { const e = h('input', { type: 'text', value: (v || []).join(', '), style: 'width:100%', placeholder: d.kind === 'formats' ? 'S32_LE, S24_3LE, S16_LE' : 'name1, name2' }); return { el: e, get: () => e.value.split(',').map(x => x.trim()).filter(Boolean), set: x => { e.value = (x || []).join(', '); } }; }
@@ -185,8 +212,11 @@ routes.settings = async args => {
     });
     function summary(r) {
       const out = [];
-      const lines = r.changed.map(c => h('div', {}, h('span', { class: 'mono' }, c.key), ' = ', h('span', { class: 'mono' }, JSON.stringify(c.value)), ' ', h('span', { class: 'chip ' + (c.applied ? 'ok' : (c.apply === 'live' || c.apply === 'next_boundary') ? 'crit' : 'warn') }, c.applied ? 'applied now' : (c.apply === 'live' || c.apply === 'next_boundary') ? 'not applied (station not answering)' : 'waits for a restart')));
-      out.push(h('div', { class: 'card', style: 'margin-top:14px', 'data-summary': '1' }, h('h3', {}, 'Saved'), ...lines, r.backup ? h('div', { class: 'dim' }, 'Previous file: ' + r.backup) : null, r.warning ? h('div', { class: 'notice' }, r.warning) : null));
+      const now = a => a === 'live' || a === 'next_boundary' || a === 'display_switch';
+      const missed = a => a === 'display_switch' ? 'not applied (systemd refused)' : 'not applied (station not answering)';
+      const lines = r.changed.map(c => h('div', {}, h('span', { class: 'mono' }, c.key), ' = ', h('span', { class: 'mono' }, JSON.stringify(c.value)), ' ', h('span', { class: 'chip ' + (c.applied ? 'ok' : now(c.apply) ? 'crit' : 'warn') }, c.applied ? (c.apply === 'display_switch' ? (c.value ? 'started now' : 'stopped now') : 'applied now') : now(c.apply) ? missed(c.apply) : 'waits for a restart')));
+      const sw = r.display_switch && !r.display_switch.ok ? h('div', { class: 'notice', 'data-switch-error': '1' }, `The file is saved, but the status display did not ${r.display_switch.action}: ${r.display_switch.message}. The box follows the saved switch at the next boot.`) : null;
+      out.push(h('div', { class: 'card', style: 'margin-top:14px', 'data-summary': '1' }, h('h3', {}, 'Saved'), ...lines, r.backup ? h('div', { class: 'dim' }, 'Previous file: ' + r.backup) : null, r.warning ? h('div', { class: 'notice' }, r.warning) : null, sw));
       out.push(...restartNotices(r, t.scope, t.id));
       return out;
     }
@@ -219,6 +249,23 @@ function restartNotices(r, scope, stationId) {
   if (r.library_restart?.length) out.push(h('div', { class: 'notice' }, 'These need the library service restarted: ' + r.library_restart.join(', ') + '. ',
     h('button', { class: 'danger', 'data-restart': 'library', onclick: restartLibrary }, 'Restart library service now'), ' This page reconnects when it is back. Stations keep playing.'));
   return out;
+}
+
+// The line under the display's switch: running or stopped (systemd) and the monitor the display drives (its own report).
+// Asked again every 5 s while it is on the page.
+function displayState(first) {
+  const el = h('div', { class: 'row', style: 'margin-top:6px', 'data-display-state': '1' });
+  const paint = st => {
+    if (!st) return;
+    const [txt, cls] = st.running ? ['running', 'ok'] : st.state === 'failed' ? ['failed', 'crit'] : ['stopped', ''];
+    el.replaceChildren(h('span', { class: 'chip ' + cls, 'data-state': st.state || 'unknown' }, txt), h('span', { class: 'dim', 'data-display-text': '1' }, st.running ? st.text : (st.enabled ? 'the switch is on; it starts with the box' : 'the switch is off')));
+  };
+  paint(first);
+  const timer = setInterval(async () => {
+    if (!el.isConnected) { clearInterval(timer); return; }
+    try { paint(await J('/api/v1/display/status')); } catch { }
+  }, 5000);
+  return el;
 }
 
 async function restartStation(id) {
@@ -267,4 +314,88 @@ function meterBallisticsCard(stationIds) {
   return h('div', { class: 'card', style: 'margin-top:14px', 'data-card': 'meters' }, h('h3', {}, 'Meter ballistics', helpLink('display', 'meter-ballistics')),
     h('div', { class: 'dim' }, 'How the program bars rise and fall on the status display and in the web meters, and how the gain-reduction bars of the processing view let go. The frame carries the measured PPM and the sample peak; each viewer applies this. Changes apply within a second, with no restart, and are kept across restarts.'),
     meterRow('Box default', null), ...stationIds.map(id => meterRow('Station ' + id, id)));
+}
+
+// ---- the status display's night color (the box's own panel only) -----------------------------------------------------
+// A slider for the night temperature with a swatch of what white becomes on the panel (the display's own table, from
+// the server), and one for the dim.
+function nightSlider(d, v, night) {
+  const kelvin = d.key === 'display.night_kelvin';
+  const e = h('input', { type: 'range', min: d.min, max: d.max, step: kelvin ? 100 : 5, value: v, style: 'width:100%', 'data-night-slider': d.key });
+  const out = h('span', { class: 'mono', style: 'min-width:64px;text-align:right' });
+  const sw = kelvin ? h('span', { class: 'night-swatch', title: 'White on the panel at this temperature' }) : null;
+  const paint = () => {
+    out.textContent = kelvin ? `${e.value} K` : `${e.value} %`;
+    if (sw) { const w = (night?.whites || []).find(x => x[0] === +e.value); if (w) sw.style.background = `rgb(${w[1]},${w[2]},${w[3]})`; }
+  };
+  e.addEventListener('input', paint);
+  paint();
+  return { el: h('div', { class: 'row', style: 'width:100%;flex-wrap:nowrap' }, e, out, sw), get: () => +e.value, set: x => { e.value = x; paint(); } };
+}
+
+// Only the rows that matter for the mode and the location source are shown.
+function nightRowsFollowMode(card, controls) {
+  const mode = controls['display.night_mode']?.c, loc = controls['display.night_location']?.c;
+  if (!mode || !loc) return;
+  const paint = () => {
+    const m = mode.get(), l = loc.get();
+    const show = { 'display.night_on': m === 'schedule', 'display.night_off': m === 'schedule', 'display.night_location': m === 'sun',
+      'display.night_latitude': m === 'sun' && l === 'manual', 'display.night_longitude': m === 'sun' && l === 'manual' };
+    for (const [k, on] of Object.entries(show)) { const r = $(`[data-key="${k}"]`, card); if (r) r.style.display = on ? '' : 'none'; }
+  };
+  card.addEventListener('change', paint);
+  paint();
+}
+
+// The state of the night color now (from the library service, the same code the display draws with), today's sunset and
+// sunrise, the next change, the place, and Preview night: the night look on the panel for 15 s, then back. Asked again
+// every 20 s while it is on the page.
+function nightPanel(first, controls) {
+  const el = h('div', { class: 'night-panel', 'data-night-panel': '1' });
+  const btn = h('button', { 'data-night-preview': '1', onclick: preview }, 'Preview night');
+  const paint = st => {
+    if (!st) return;
+    const s = st.state, t = st.today, chip = { day: '', off: '', night: 'ok', warming: 'warn', cooling: 'warn' }[s.phase] ?? '';
+    const sun = !t ? null : t.polar ? t.text : `Today: sunrise ${t.sunrise}, sunset ${t.sunset}`;
+    const coords = st.place ? `${fmtDeg(st.place.lat, 'N', 'S')}, ${fmtDeg(st.place.lon, 'E', 'W')}` : '';
+    const place = !st.place ? `Times in ${st.zone}.` : st.place.from.startsWith('time zone') ? `Location: ${coords}, from the ${st.place.from}.`
+      : `Location: ${coords}, ${st.place.from === 'set by hand' ? 'set by hand' : 'from the ' + st.place.from}. Times in ${st.zone}.`;
+    const net = st.settings.night_location === 'internet' && st.internet?.error ? `The last internet lookup failed: ${st.internet.error}` : null;
+    // (replaceChildren would write a null as the text "null")
+    el.replaceChildren(...[
+      h('div', { class: 'row' }, h('span', { class: 'chip ' + chip, 'data-night-state': s.phase, style: 'font-size:14px' }, s.text), h('span', { class: 'night-swatch', style: `background:${whiteOf(st, s.kelvin)}`, title: 'White on the panel now' }),
+        btn, helpLink('status-display', 'night-color')),
+      sun ? h('div', { 'data-night-sun': '1' }, sun) : null,
+      st.next ? h('div', { 'data-night-next': '1' }, 'Next: ' + st.next.text) : h('div', { class: 'dim', 'data-night-next': '1' }, st.settings.night_mode === 'off' ? 'Night color is off.' : 'No change in the next two days.'),
+      h('div', { class: 'dim', 'data-night-place': '1' }, place),
+      st.error ? h('div', { class: 'notice', 'data-night-error': '1' }, `The panel stays at day color: ${st.error}.`) : null,
+      net ? h('div', { class: 'dim' }, net) : null,
+      h('div', { class: 'dim', style: 'font-size:12px' }, 'Only the panel on this box changes color. The web pages, the On Air page and the stream never do.')].filter(Boolean));
+  };
+  const timer = setInterval(async () => {
+    if (!el.isConnected) { clearInterval(timer); return; }
+    if (btn.disabled) return;
+    try { paint(await J('/api/v1/display/night')); } catch { }
+  }, 20000);
+  paint(first);
+  async function preview() {
+    // the values on the page, saved or not
+    const body = { kelvin: controls['display.night_kelvin']?.c.get(), dim_percent: controls['display.night_dim_percent']?.c.get() };
+    const r = await safe(jsend('/api/v1/display/night/preview', body), 'Preview');
+    if (!r) return;
+    btn.disabled = true;
+    const end = Date.now() + r.seconds * 1000;
+    const tick = () => {
+      const left = Math.ceil((end - Date.now()) / 1000);
+      if (left > 0 && el.isConnected) { btn.textContent = `Night on the panel: ${left} s`; setTimeout(tick, 250); }
+      else { btn.disabled = false; btn.textContent = 'Preview night'; }
+    };
+    tick();
+  }
+  return el;
+}
+const fmtDeg = (v, pos, neg) => `${Math.abs(v).toFixed(2)} ${v >= 0 ? pos : neg}`;
+function whiteOf(st, k) {
+  const w = (st.whites || []).reduce((a, x) => Math.abs(x[0] - k) < Math.abs(a[0] - k) ? x : a, [6500, 255, 255, 255]);
+  return `rgb(${w[1]},${w[2]},${w[3]})`;
 }

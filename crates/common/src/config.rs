@@ -122,6 +122,10 @@ impl Default for LibraryServiceConfig {
 #[derive(Debug, Clone, Deserialize, PartialEq)]
 #[serde(deny_unknown_fields, default)]
 pub struct DisplayConfig {
+    /// Run the status display on this box's monitor (`hotclock-display.service`). The library service starts or
+    /// stops the unit when the Settings page changes it, and the unit's `ExecCondition=` and the boot generator
+    /// (`packaging/systemd/hotclock-stations-generator`) read it, so an off switch also holds across a reboot.
+    pub enabled: bool,
     /// The KMS mode, `WIDTHxHEIGHT` or `WIDTHxHEIGHT@HZ`. Set explicitly through KMS; the panel's EDID is never
     /// trusted for the resolution (11, 7d). A mode the connector does not list is added as a custom mode.
     pub mode: String,
@@ -170,11 +174,34 @@ pub struct DisplayConfig {
     pub bar_cpu: bool,
     /// The top bar: a dot at the left, green while the box has a network route out, red when not.
     pub bar_network: bool,
+    /// Night color on the panel (only the box's own panel; the web pages and the stream never change): `sun` (warm
+    /// from sunset to sunrise), `schedule` (from `night_on` to `night_off`) or `off`. See [`crate::night`].
+    pub night_mode: String,
+    /// The night white point in kelvin, 1900 to 6500 (6500 is the panel untouched).
+    pub night_kelvin: u32,
+    /// How much less light white gives at night, 0 to 50 %. The panel's backlight cannot be set from the box, so
+    /// this is the only dimmer.
+    pub night_dim_percent: u32,
+    /// The length of the warming before sunset and of the cooling after sunrise, in minutes (0 to 180).
+    pub night_transition_min: u32,
+    /// `schedule`: when the night look is reached (`HH:MM`, local time) and when the way back starts.
+    pub night_on: String,
+    pub night_off: String,
+    /// Where the sun is computed for: `timezone` (the principal city of the time zone, from tzdata), `internet`
+    /// (one lookup of the box's public address a day, opt-in) or `manual` (`night_latitude`, `night_longitude`).
+    pub night_location: String,
+    /// Degrees, north positive.
+    pub night_latitude: Option<f64>,
+    /// Degrees, east positive.
+    pub night_longitude: Option<f64>,
+    /// `system` (the machine's time zone) or an IANA name: the times of `schedule` and of the Settings page.
+    pub night_time_zone: String,
 }
 
 impl Default for DisplayConfig {
     fn default() -> Self {
         Self {
+            enabled: true,
             mode: "1024x600@60".into(),
             diagonal_in: 7.0,
             view_distance_cm: 70.0,
@@ -196,6 +223,16 @@ impl Default for DisplayConfig {
             bar_date: true,
             bar_cpu: true,
             bar_network: false,
+            night_mode: "sun".into(),
+            night_kelvin: 3400,
+            night_dim_percent: 0,
+            night_transition_min: 60,
+            night_on: "20:00".into(),
+            night_off: "07:00".into(),
+            night_location: "timezone".into(),
+            night_latitude: None,
+            night_longitude: None,
+            night_time_zone: "system".into(),
         }
     }
 }
@@ -286,6 +323,74 @@ impl DisplayConfig {
                 format!("must be between 6 and 30, got {}", self.proc_range_db),
             );
         }
+        for (key, v, ok) in [
+            (
+                "night_mode",
+                &self.night_mode,
+                &["sun", "schedule", "off"][..],
+            ),
+            (
+                "night_location",
+                &self.night_location,
+                &["timezone", "internet", "manual"][..],
+            ),
+        ] {
+            if !ok.contains(&v.as_str()) {
+                bad(key, format!("must be one of {}, got `{v}`", ok.join(", ")));
+            }
+        }
+        if !(1900..=6500).contains(&self.night_kelvin) {
+            bad(
+                "night_kelvin",
+                format!("must be between 1900 and 6500, got {}", self.night_kelvin),
+            );
+        }
+        if self.night_dim_percent > 50 {
+            bad(
+                "night_dim_percent",
+                format!("must be between 0 and 50, got {}", self.night_dim_percent),
+            );
+        }
+        if self.night_transition_min > 180 {
+            bad(
+                "night_transition_min",
+                format!(
+                    "must be between 0 and 180, got {}",
+                    self.night_transition_min
+                ),
+            );
+        }
+        for (key, v) in [("night_on", &self.night_on), ("night_off", &self.night_off)] {
+            if crate::night::parse_hhmm(v).is_none() {
+                bad(key, format!("must be a time like `20:00`, got `{v}`"));
+            }
+        }
+        for (key, v, max) in [
+            ("night_latitude", self.night_latitude, 90.0),
+            ("night_longitude", self.night_longitude, 180.0),
+        ] {
+            if let Some(v) = v {
+                if !(-max..=max).contains(&v) {
+                    bad(key, format!("must be between -{max} and {max}, got {v}"));
+                }
+            }
+        }
+        if self.night_location == "manual"
+            && (self.night_latitude.is_none() || self.night_longitude.is_none())
+        {
+            bad(
+                "night_location",
+                "is `manual`: set night_latitude and night_longitude too".into(),
+            );
+        }
+        if self.night_time_zone != "system" {
+            if let Err(e) = crate::timespec::Zone::named(&self.night_time_zone) {
+                bad(
+                    "night_time_zone",
+                    format!("must be `system` or a known zone: {e}"),
+                );
+            }
+        }
         errs
     }
 }
@@ -310,6 +415,72 @@ pub struct GlobalConfig {
     pub secrets_file: PathBuf,
     /// The status display's screen and views (11).
     pub display: DisplayConfig,
+    /// What the stations do with a program that has stopped (`[programs]`).
+    pub programs: ProgramsConfig,
+}
+
+/// The `[programs]` block of the global file: what every station does with a program that has stopped.
+#[derive(Debug, Clone, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields, default)]
+pub struct ProgramsConfig {
+    /// Unload a program that has stopped and stays stopped after this many minutes, the way End program and stop
+    /// the audio does; `"never"` keeps it loaded.
+    pub unload_after_min: UnloadAfter,
+}
+
+impl Default for ProgramsConfig {
+    fn default() -> Self {
+        Self {
+            unload_after_min: UnloadAfter::Minutes(DEFAULT_UNLOAD_AFTER_MIN),
+        }
+    }
+}
+
+/// The minutes the Settings page offers for `programs.unload_after_min` (besides `never`).
+pub const UNLOAD_AFTER_CHOICES: [u32; 7] = [1, 2, 5, 10, 15, 30, 60];
+pub const DEFAULT_UNLOAD_AFTER_MIN: i64 = 5;
+/// The most minutes the file may say (a day).
+pub const UNLOAD_AFTER_MAX_MIN: i64 = 1440;
+
+/// `programs.unload_after_min`: a number of minutes, or the word `never`.
+#[derive(Debug, Clone, Deserialize, PartialEq)]
+#[serde(untagged)]
+pub enum UnloadAfter {
+    Minutes(i64),
+    Word(String),
+}
+
+impl UnloadAfter {
+    /// The minutes, or `None` for `never` (and for a value the parser refuses).
+    pub fn minutes(&self) -> Option<u32> {
+        match self {
+            UnloadAfter::Minutes(m) if (1..=UNLOAD_AFTER_MAX_MIN).contains(m) => Some(*m as u32),
+            _ => None,
+        }
+    }
+
+    /// The value as the live-settings API and the Settings page carry it: a number, or `"never"`.
+    pub fn from_json(v: &serde_json::Value) -> Result<UnloadAfter, String> {
+        let u = match v {
+            serde_json::Value::String(s) => UnloadAfter::Word(s.clone()),
+            v => match v.as_i64() {
+                Some(m) => UnloadAfter::Minutes(m),
+                None => return Err(Self::RULE.into()),
+            },
+        };
+        u.check().map(|_| u)
+    }
+
+    const RULE: &'static str = "must be a number of minutes from 1 to 1440, or \"never\"";
+
+    fn check(&self) -> Result<(), String> {
+        match self {
+            UnloadAfter::Minutes(m) if (1..=UNLOAD_AFTER_MAX_MIN).contains(m) => Ok(()),
+            UnloadAfter::Word(w) if w == "never" => Ok(()),
+            UnloadAfter::Minutes(m) => Err(format!("{}, got {m}", Self::RULE)),
+            UnloadAfter::Word(w) => Err(format!("{}, got `{w}`", Self::RULE)),
+        }
+    }
 }
 
 impl Default for GlobalConfig {
@@ -324,6 +495,7 @@ impl Default for GlobalConfig {
             allowed_hosts: Vec::new(),
             secrets_file: "/etc/hotclock/secrets.toml".into(),
             display: DisplayConfig::default(),
+            programs: ProgramsConfig::default(),
         }
     }
 }
@@ -388,6 +560,13 @@ impl GlobalConfig {
             }
         }
         errs.extend(cfg.display.validate(file));
+        if let Err(m) = cfg.programs.unload_after_min.check() {
+            errs.push(ConfigError {
+                file: file.to_path_buf(),
+                key: "programs.unload_after_min".into(),
+                message: m,
+            });
+        }
         if errs.is_empty() {
             Ok(cfg)
         } else {
@@ -1686,6 +1865,31 @@ max_listeners = 4
         .unwrap_err();
         let keys: Vec<_> = e.0.iter().map(|x| x.key.as_str()).collect();
         assert_eq!(keys, ["data_dir", "brand.display_name"]);
+    }
+
+    #[test]
+    fn unload_after_is_minutes_or_never_and_five_by_default() {
+        let p = Path::new("/etc/hotclock/hotclock.toml");
+        let g = GlobalConfig::parse("", p).unwrap();
+        assert_eq!(g.programs.unload_after_min.minutes(), Some(5));
+        let g = GlobalConfig::parse("[programs]\nunload_after_min = 30\n", p).unwrap();
+        assert_eq!(g.programs.unload_after_min.minutes(), Some(30));
+        let g = GlobalConfig::parse("[programs]\nunload_after_min = \"never\"\n", p).unwrap();
+        assert_eq!(g.programs.unload_after_min.minutes(), None);
+        for bad in ["0", "1441", "\"soon\"", "2.5"] {
+            let e = GlobalConfig::parse(&format!("[programs]\nunload_after_min = {bad}\n"), p)
+                .unwrap_err();
+            assert!(e.to_string().contains("unload_after_min"), "{bad}: {e}");
+        }
+        assert!(UnloadAfter::from_json(&serde_json::json!("never")).is_ok());
+        assert_eq!(
+            UnloadAfter::from_json(&serde_json::json!(10))
+                .unwrap()
+                .minutes(),
+            Some(10)
+        );
+        assert!(UnloadAfter::from_json(&serde_json::json!(0)).is_err());
+        assert!(UnloadAfter::from_json(&serde_json::json!(true)).is_err());
     }
 
     #[test]

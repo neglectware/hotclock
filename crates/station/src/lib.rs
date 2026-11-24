@@ -37,3 +37,4 @@ pub mod state;
 pub mod supervise;
 pub mod sync;
 pub mod timed;
+pub mod unload;

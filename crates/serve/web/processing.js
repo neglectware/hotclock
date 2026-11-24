@@ -540,6 +540,9 @@ async function processingPanel(s) {
     const bypass = h('button', { class: chain.bypass_override ? 'primary' : '', 'data-bypass': s.id, title: 'Take the whole chain out of the path and back, without changing the saved settings; the next start returns to the configured chain.', onclick: async () => {
       const r = await safe(jsend(`${base}/processing/bypass`, { on: !chain.bypass_override }), 'Bypass'); if (r) { adopt(r); repaintAll(); }
     } }, chain.bypass_override ? 'Chain bypassed: switch back in' : 'Bypass the chain');
+    // A line-up needs the controller off as well (it comes after the chain, so the bypass leaves it on): one place for both.
+    const loudOffBox = h('input', { type: 'checkbox', 'data-loud-off': s.id, disabled: !loudEl, onchange: () => { loudToggle(); syncLoudOff(); } });
+    const loudOff = h('label', { class: 'inline ploudoff', title: 'Switch the loudness controller off, for a line-up, and back on. It saves at once, as the switch on its card.' }, loudOffBox, ' Loudness controller off');
     // The settings history (history.js): after a restore the chain and the loudness card are read again.
     const historyBtn = ConfigHistoryUI.button(s, async () => { try { adopt(await J(base + '/chain')); } catch { } loudEl = null; await repaintAll(); });
     const v = view();
@@ -548,7 +551,8 @@ async function processingPanel(s) {
     const chainWord = chain.user_preset ? chain.user_preset : chain.custom ? `custom (based on ${chain.preset})` : chain.preset;
     card.append(...[h('h3', {}, 'Processing chain, ' + s.display_name, helpLink('processing')),
       chain.persist_warning ? h('div', { class: 'notice', role: 'alert', 'data-persist-warning': '' }, h('b', {}, 'Not saved. '), chain.persist_warning) : null,
-      h('div', { class: 'row' }, h('span', { class: 'dim' }, 'Chain preset'), presetBar('chain', cur), bypass, historyBtn, h('div', { class: 'grow' }), seg.el),
+      h('div', { class: 'row' }, h('span', { class: 'dim' }, 'Chain preset'), presetBar('chain', cur), bypass, loudOff, historyBtn, h('div', { class: 'grow' }), seg.el),
+      h('div', { class: 'dim', 'data-bypass-note': '' }, 'The loudness controller and the safety limiters stay on.'),
       h('div', { class: 'dim', style: 'margin-top:6px' }, chain.bypassed ? 'Nothing in the chain is on: the program passes unchanged (the safety limiter and, when it is on, the loudness controller still act).' : `Preset ${chainWord}${chain.custom && chain.user_preset ? ', with changes' : ''}. A change is a 50 ms crossfade to the new chain, with the old chain's state carried over.`)].filter(Boolean));
     return card;
   }
@@ -592,6 +596,13 @@ async function processingPanel(s) {
     en.checked = !en.checked;
     en.dispatchEvent(new Event('change', { bubbles: true }));   // the card saves it, as for its own switch
     rackUpdate();
+  };
+  // the "Loudness controller off" box at the top follows the controller's own switch (on its card)
+  const syncLoudOff = () => {
+    const box = root.querySelector('[data-loud-off]'), en = loudEl && loudEl.querySelector('input[data-k="enabled"]');
+    if (!box) return;
+    box.disabled = !en;
+    if (en && box.checked !== !en.checked) box.checked = !en.checked;
   };
   const loudPill = () => {
     const p = loudEl && loudEl.querySelector('[data-loud-pill]');
@@ -774,6 +785,7 @@ async function processingPanel(s) {
     root.firstChild.replaceWith(topCard());
   }
   await repaintAll();
+  syncLoudOff();
 
   // ---- live meters ----
   let wsTimer = null;
@@ -782,6 +794,7 @@ async function processingPanel(s) {
     wsTimer = null;
     const f = latest; if (!f) return;
     loudEl?._live?.(f);
+    syncLoudOff();
     for (const [k, m] of Object.entries(meters)) {
       if (m.stage == null) continue;
       const st = f.stages[m.stage], en = k === 'safety' ? true : (f.stageMask >> m.stage & 1) === 1;

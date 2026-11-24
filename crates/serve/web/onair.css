@@ -68,6 +68,12 @@
    as before (an inline-block can make it a fraction taller with some fonts) */
 .oa .lufs .lv { white-space: pre; }
 .oa .lufs .unitlab { margin-left: auto; min-width: 0; }
+/* the dBFS peak beside the level bars: each value on its bar's 7 px line, the label on two lines as tall as both bars,
+   so the unit is exactly as tall as without it */
+.oa .leds.dbfspk { grid-template-columns: minmax(0, 1fr) auto auto; grid-template-rows: 7px 7px; column-gap: 8px; align-items: center; }
+.oa .leds .pkv, .oa .leds .pkv .lv { font: 10px/7px var(--mono); color: var(--dim); white-space: pre; }
+.oa .leds .pkv { height: 7px; overflow: visible; }
+.oa .leds .pklab { grid-column: 3; grid-row: 1 / span 2; height: 18px; font: 9px/9px var(--font); color: var(--dim); text-transform: none; }
 .oa .nextbox { border-left: 1px solid #0006; box-shadow: -1px 0 0 #ffffff0d; padding-left: 18px; display: flex; flex-direction: column; gap: 10px; min-width: 0; }
 .oa .nextbox .glab { font: 600 10px/1 var(--font); letter-spacing: .1em; color: var(--dim); text-transform: uppercase; }
 .oa .nx { display: grid; grid-template-columns: 52px minmax(0, 1fr); gap: 10px; align-items: center; }
@@ -508,3 +514,7 @@
 @media (min-width: 1024px) { .oa .lpop [data-group=phone] { display: none; } }
 @media (max-width: 1023px) { .oa .lpop [data-group=split] { display: none; } }
 @container (max-width: 900px) { .oa .pm-bridge .pm-gr { width: 24px; } .oa .pm-bridge .pm-row { gap: 8px; } .oa .pm-bridge .pm-row > .pm-more { display: none; } }
+
+/* the countdown to unloading a stopped program, with its Keep loaded button */
+.unloadline { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; }
+.unloadline .f-keep { margin-left: auto; }

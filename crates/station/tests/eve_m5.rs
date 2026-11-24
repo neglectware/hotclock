@@ -230,11 +230,12 @@ fn ita_monday_audio_the_fade_the_mute_the_elevator_and_the_late_press() {
             t0_f
         );
         assert!((t0_f - press_s).abs() < 0.1, "T0 is the press");
-        // (a) nothing plays before the press; the first sample comes one lead after it.
+        // (a) nothing plays before the press; the first sample comes right after it (a start from silence has a 2 ms
+        // lead; the levels are 20 ms windows, so the window of the press may already hold it).
         let lv = levels.lock().unwrap().clone();
         let first_sound = lv.iter().position(|d| *d > -60.0).expect("sound") as f64 / 50.0;
         println!("(a) first sound {first_sound:.3} s, press at {t0_f:.3} s");
-        assert!(first_sound >= t0_f, "nothing plays before the press");
+        assert!(first_sound >= t0_f - 0.02, "nothing plays before the press");
         assert!(
             first_sound - t0_f < 0.40,
             "the first sample is within the start lead"
@@ -1155,6 +1156,357 @@ fn a_second_press_restarts_the_same_program_from_a_new_t0() {
         vec![880 * SEC],
         "the fade re-armed at the new T0 + 14:40"
     );
+}
+
+#[test]
+fn a_morning_test_press_uses_up_tonights_expected_start_and_the_evening_press_still_restarts() {
+    // The owner's day on the box (2026-10-12): a test press at 05:21, the box left as it is, the show at 18:45.
+    let w = World::new(
+        "morning-test",
+        &[120.0, 135.0, 150.0, 125.0, 140.0, 165.0],
+        &[90.0, 100.0, 110.0],
+    );
+    let morning = local("2027-01-18T05:20:00");
+    let (mut off, _) = w.open(morning, true, 5);
+    off.keep_samples = false;
+    off.start().unwrap();
+    off.run_until(120.0, &[(60.0, press(w.monday, "deck"))])
+        .unwrap();
+    let t0_morning = off.station.sched.st.program.as_ref().unwrap().t0_ms;
+    // A hand start uses up the occurrences of its day: the station expects the program next Monday, not tonight.
+    let e = off
+        .station
+        .sched
+        .expected(morning + 120 * SEC)
+        .expect("an expected start");
+    assert_eq!(
+        station_zone(e.at_ms),
+        station_zone(local("2027-01-25T18:45:00")),
+        "expected next Monday"
+    );
+    off.station.flush();
+    drop(off);
+
+    // The evening: the same state, a minute before the show.
+    let evening = local("2027-01-18T18:44:00");
+    let (mut off2, _) = w.open(evening, true, 5);
+    let (levels, sink) = collector();
+    off2.keep_samples = false;
+    off2.sink = Some(sink);
+    off2.start().unwrap();
+    off2.run_until(90.0, &[(60.0, press(w.monday, "deck"))])
+        .unwrap();
+    let pr = off2.station.sched.st.program.as_ref().expect("a program");
+    let t0_s = (pr.t0_ms - evening) as f64 / 1000.0;
+    assert!(pr.t0_ms > t0_morning);
+    assert!((t0_s - 60.0).abs() < 0.2, "T0 is the evening press: {t0_s}");
+    assert_eq!(pr.t0_source, "deck");
+    // What played since the morning run fades out over 2 s (no cut), and the pre-show follows at the end of the
+    // fade and goes on.
+    let lv = levels.lock().unwrap();
+    assert!(
+        lv[win_of(59.5)] > -30.0,
+        "the morning run's audio was on air"
+    );
+    assert!(
+        lv[win_of(60.5)..win_of(61.75)].iter().all(|d| *d > -40.0),
+        "a fade, not a cut"
+    );
+    assert!(
+        lv[win_of(62.5)..win_of(89.0)].iter().all(|d| *d > -40.0),
+        "the pre-show is on air from the end of the fade"
+    );
+    let (vs, item) = first_voice_after(&off2, 59.0).expect("a voice after the press");
+    println!("first voice after the press: {item} at {vs:.3} s");
+    assert!(item.starts_with('p'), "the pre-show's item: {item}");
+    assert!(
+        vs < 62.6,
+        "the pre-show starts at the end of the fade: {vs}"
+    );
+    // The new run's fade is at the evening T0 + 14:40.
+    let fade = off2
+        .station
+        .sched
+        .upcoming(evening + 90 * SEC, 2)
+        .into_iter()
+        .find(|u| u.name == "Fade out")
+        .expect("the fade is upcoming");
+    assert_eq!(fade.target_ms - pr.t0_ms, 880 * SEC);
+    // Still next Monday.
+    let e = off2.station.sched.expected(evening + 90 * SEC).unwrap();
+    assert_eq!(
+        station_zone(e.at_ms),
+        station_zone(local("2027-01-25T18:45:00"))
+    );
+}
+
+// ---- "End program" ends the program for good -------------------------------------------------------------------------
+
+/// The box's eve (2026-10-12): no default playlist, an emergency playlist. The program starts at 60 s and is ended
+/// by hand at 120 s; with `restart` the station is restarted at 180 s from its state. The render runs past T0 + 15:01
+/// (the fade, the console mute and the elevator bed of the program). Before the fix the abort started the same
+/// program again with T0 = the abort, and its blocks played the bed on a stopped station 15 minutes later.
+fn end_program_for_good(name: &str, stop_audio: bool, restart: bool) {
+    let w = World::new(name, &[120.0, 135.0, 150.0, 125.0], &[90.0, 100.0]);
+    let monday = owner_monday(&w, "Eve Monday (owner)");
+    let origin = local("2027-01-18T05:20:00");
+    let tweak = |o: &mut StationOptions| {
+        o.default_playlist = None;
+        o.emergency_playlist = Some("Eve 80s library".into());
+    };
+    let (mut off, rec) = w.open_with(origin, true, 17, tweak);
+    off.keep_samples = false;
+    // the levels of the first session, from 0 s (those of a restarted session count from its own start)
+    let (levels1, sink) = collector();
+    off.sink = Some(sink);
+    off.start().unwrap();
+    off.run_until(120.0, &[(60.0, press(monday, "deck"))])
+        .unwrap();
+    let t0 = off.station.sched.st.program.as_ref().unwrap().t0_ms;
+    {
+        let mixer = &mut off.mixer;
+        let mut send = |c: engine::rt::Command| mixer.command(&c.kind);
+        off.station.program_abort(stop_audio, &mut send).unwrap();
+    }
+    let abort_ms = origin + 120 * SEC;
+    assert!(
+        off.station.sched.st.program.is_none(),
+        "no program after the abort (the station has no other playlist)"
+    );
+    let end_s = 60.0 + 901.0 + 120.0;
+    let mut osc = osc_values(&rec);
+    let (off, levels) = if restart {
+        off.run_until(180.0, &[]).unwrap();
+        off.station.flush();
+        drop(off);
+        let (mut off2, rec2) = w.open_with(origin + 185 * SEC, true, 17, tweak);
+        let (levels, sink) = collector();
+        off2.keep_samples = false;
+        off2.sink = Some(sink);
+        off2.start().unwrap();
+        assert!(
+            off2.station.sched.st.program.is_none(),
+            "a restart does not bring the program back"
+        );
+        off2.run_until(end_s - 185.0, &[]).unwrap();
+        osc.extend(osc_values(&rec2));
+        (off2, levels)
+    } else {
+        off.run_until(end_s, &[]).unwrap();
+        (off, levels1)
+    };
+    let st = &off.station;
+    assert!(st.sched.st.program.is_none(), "still no program");
+    // No block of the program acted after the abort: no fade, no console mute, no elevator bed.
+    let late: Vec<_> = st
+        .sched
+        .st
+        .log
+        .rows
+        .iter()
+        .filter(|r| r.fired_ms.is_some_and(|f| f > abort_ms))
+        .map(|r| {
+            (
+                r.name.clone(),
+                r.how.clone(),
+                r.fired_ms.map(|f| (f - t0) / SEC),
+            )
+        })
+        .collect();
+    assert!(late.is_empty(), "blocks after the abort: {late:?}");
+    assert!(
+        osc.iter().all(|o| o.1 <= abort_ms),
+        "OSC after the abort: {osc:?}"
+    );
+    assert!(
+        st.sched
+            .upcoming(origin + (end_s as i64) * SEC, 48)
+            .is_empty(),
+        "nothing upcoming"
+    );
+    // Nothing starts by itself later: no bed, no emergency playlist, no starvation alert.
+    let since = if restart { 0.0 } else { 300.0 };
+    assert!(
+        first_voice_after(&off, since).is_none(),
+        "a voice started by itself: {:?}",
+        first_voice_after(&off, since)
+    );
+    let a = &st.fail.alerts;
+    assert!(
+        !a.history.iter().any(|e| e.alert.code == "queue_starved"),
+        "no queue_starved"
+    );
+    let lv = levels.lock().unwrap();
+    let quiet_from = if restart { 5.0 } else { 300.0 };
+    let tail = &lv[win_of(quiet_from)..];
+    assert!(
+        tail.iter().all(|d| *d < -90.0),
+        "silent to T0 + 15:01 and past it"
+    );
+    if !restart {
+        // what was on air at the abort: cut with the stop's fade, or played on
+        if stop_audio {
+            assert!(lv[win_of(125.0)..win_of(300.0)].iter().all(|d| *d < -90.0));
+            assert_eq!(st.transport.name(), "stopped");
+        } else {
+            assert!(
+                lv[win_of(121.0)..win_of(170.0)].iter().all(|d| *d > -40.0),
+                "the music continued"
+            );
+        }
+    }
+}
+
+#[test]
+fn end_program_stops_the_audio_and_no_block_of_the_program_acts_any_more() {
+    end_program_for_good("abort-stop", true, false);
+}
+
+#[test]
+fn end_program_stops_the_audio_and_a_restart_does_not_bring_the_program_back() {
+    end_program_for_good("abort-stop-restart", true, true);
+}
+
+#[test]
+fn end_program_music_continues_plays_on_and_no_block_of_the_program_acts_any_more() {
+    end_program_for_good("abort-music", false, false);
+}
+
+#[test]
+fn end_program_music_continues_and_a_restart_does_not_bring_the_program_back() {
+    end_program_for_good("abort-music-restart", false, true);
+}
+
+/// The box's eve (2026-10-12): the show is ended by hand, the song plays out, and later the operator switches to the
+/// elevator playlist (a plain playlist). The switch plays that playlist: no program run starts, no block of the show
+/// acts, no OSC goes out (the console stays as it is). With `restart`, the station restarts before the switch.
+fn switch_after_end_program(name: &str, stop_audio: bool, restart: bool) {
+    let w = World::new(name, &[60.0, 65.0, 70.0], &[90.0, 100.0]);
+    let monday = owner_monday(&w, "Eve Monday (owner)");
+    // a copy of the show (the library's Copy keeps the blocks): it is a program too
+    let copy = owner_monday(&w, "Eve Monday copy");
+    let origin = local("2027-01-18T05:20:00");
+    let tweak = |o: &mut StationOptions| {
+        o.default_playlist = None;
+        o.emergency_playlist = Some("Eve 80s library".into());
+    };
+    let (mut off, rec) = w.open_with(origin, true, 17, tweak);
+    off.keep_samples = false;
+    off.start().unwrap();
+    off.run_until(30.0, &[(10.0, press(monday, "deck"))])
+        .unwrap();
+    {
+        let mixer = &mut off.mixer;
+        let mut send = |c: engine::rt::Command| mixer.command(&c.kind);
+        off.station.program_abort(stop_audio, &mut send).unwrap();
+    }
+    let abort_ms = origin + 30 * SEC;
+    // the song plays out (or the stop fades it); the station is quiet
+    off.run_until(200.0, &[]).unwrap();
+    let mut osc = osc_values(&rec);
+    let mut off = if restart {
+        off.station.flush();
+        drop(off);
+        let (mut o2, rec2) = w.open_with(origin + 205 * SEC, true, 17, tweak);
+        o2.keep_samples = false;
+        o2.start().unwrap();
+        o2.run_until(1.0, &[]).unwrap();
+        // what the restarted station sends from here on
+        let r = rec2.clone();
+        o2.run_until(2.0, &[]).unwrap();
+        osc.extend(osc_values(&r));
+        (o2, Some(r))
+    } else {
+        (off, None)
+    };
+    let base = if restart { 205.0 } else { 0.0 };
+    let at = 210.0 - base;
+    assert!(
+        off.0.station.sched.st.program.is_none(),
+        "no program before the switch"
+    );
+    // A switch to the show's copy is refused: a switch never loads a program.
+    off.0
+        .run_until(
+            at - 2.0,
+            &[(
+                at - 3.0,
+                Op::Switch {
+                    playlist_id: copy,
+                    how: SwitchHow::Now,
+                },
+            )],
+        )
+        .unwrap();
+    let refused = format!("{:?}", off.0.op_log.last().expect("the switch").2);
+    assert!(refused.contains("is a program"), "{refused}");
+    assert!(off.0.station.sched.st.program.is_none());
+    // The switch to the elevator playlist plays it.
+    let end = at + 1000.0;
+    off.0
+        .run_until(
+            end,
+            &[(
+                at,
+                Op::Switch {
+                    playlist_id: w.bed_id,
+                    how: SwitchHow::Now,
+                },
+            )],
+        )
+        .unwrap();
+    let st = &off.0.station;
+    let pr = st.sched.st.program.as_ref().expect("the playlist runs");
+    assert_eq!(
+        pr.playlist_id, w.bed_id,
+        "the elevator playlist, not the show"
+    );
+    assert_eq!(pr.t0_source, "switch");
+    assert!(!pr.manual);
+    assert_eq!(st.transport.name(), "playing");
+    let late: Vec<_> = st
+        .sched
+        .st
+        .log
+        .rows
+        .iter()
+        // the End program row is the abort itself (`station::unload` logs it), not a block of the program
+        .filter(|r| r.fired_ms.is_some_and(|f| f > abort_ms) && r.kind != "end_program")
+        .map(|r| (r.name.clone(), r.how.clone()))
+        .collect();
+    assert!(late.is_empty(), "blocks after the abort: {late:?}");
+    if let Some(r) = &off.1 {
+        osc.extend(osc_values(r));
+    } else {
+        osc = osc_values(&rec);
+    }
+    assert!(
+        osc.iter().all(|o| o.1 <= abort_ms),
+        "OSC after the abort: {osc:?}"
+    );
+    assert!(
+        st.sched
+            .upcoming(origin + ((base + end) as i64) * SEC, 48)
+            .iter()
+            .all(|u| u.source != "program"),
+        "no program block upcoming"
+    );
+}
+
+#[test]
+fn after_end_program_music_continues_a_playlist_switch_plays_the_playlist_and_no_program() {
+    switch_after_end_program("switch-after-abort-music", false, false);
+}
+
+#[test]
+fn after_end_program_and_stop_a_playlist_switch_plays_the_playlist_and_no_program() {
+    switch_after_end_program("switch-after-abort-stop", true, false);
+}
+
+#[test]
+fn after_end_program_and_a_restart_a_playlist_switch_plays_the_playlist_and_no_program() {
+    switch_after_end_program("switch-after-abort-restart", false, true);
+    switch_after_end_program("switch-after-abort-stop-restart", true, true);
 }
 
 // ---- a planned silence is not starvation ---------------------------------------------------------------------------

@@ -4,7 +4,7 @@ This page explains the lossless network stream that a station can serve. It also
 
 ## What the stream is
 
-A station with a `[stream]` block in its station file serves its program as **lossless FLAC in an Ogg stream**. The stream uses plain HTTP on the station's own API port. A program such as OBS reads it with a Media Source. Nothing is converted to analog and back.
+A station with `stream.enabled` on serves its program as **lossless FLAC in an Ogg stream**. The stream uses plain HTTP on the station's own API port. A program such as OBS reads it with a Media Source. Nothing is converted to analog and back.
 
 - The address is `http://<box>:<station port>/stream/<mount>.ogg`. The default mount is `program`, for example `http://box:8301/stream/program.ogg`.
 - The stream is the program as the sound card gets it: after the safety limiter and the output trim, at 24 bits. There is no separate stream gain. The fader of the receiving program is the trim.
@@ -53,6 +53,11 @@ The address, the input format and the stream itself are tested with ffmpeg and f
 
 | Setting | What it does |
 |---|---|
+| `stream.enabled` | Turns the stream on (default off). Turn it on for a station that feeds OBS or has no sound card. A change needs a restart of the station. |
+| `stream.mount` | The name in the stream's address (default `program`). Change it only when a receiver expects another name. |
+| `stream.codec` | The codec of the stream (default `flac`). FLAC is the only codec built, so leave it as it is. |
+| `stream.opus_kbps` | The Opus bit rate (default 192). Opus is not built, so the station ignores this key. |
+| `stream.send_icy_metadata` | Sends song titles in the stream (default off). It is only for AAC mounts, which do not exist yet. Leave it off. |
 | `stream.max_listeners` | The maximum number of listeners at the same time (1 to 32, default 4) |
 | `stream.burst_ms` | The audio sent at once to a new listener, so that playback starts without a wait (default 1000) |
 | `stream.listener_lag_s` | A listener that falls this far behind is disconnected (default 5) |

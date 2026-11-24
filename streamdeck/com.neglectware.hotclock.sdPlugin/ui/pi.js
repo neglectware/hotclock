@@ -5,6 +5,7 @@
   "use strict";
 
   var HOW = [["segue", "At the next segue"], ["now", "Right now"], ["end", "When this song ends"]];
+  var PROGRAM_HINT = "Programs (sequential playlists with blocks, like a weekly show) are not listed. Use Start Playlist as Program for them.";
 
   // Field kinds: select, number, text, check, playlist (picker; saves id and name), item (search; saves id, title and duration), block (picker; needs a playlist).
   var SPECS = {
@@ -12,13 +13,14 @@
     "fade-next": [{ k: "fadeMs", t: "number", label: "Fade (ms)", ph: "station default" }],
     stop: [{ k: "fadeMs", t: "number", label: "Fade (ms)", ph: "station default" }, { t: "note", text: "Hold the key for half a second to stop." }],
     cut: [{ t: "note", text: "Hold the key for half a second to cut." }],
-    "switch-playlist": [{ k: "playlist", t: "playlist", label: "Playlist", idKey: "playlistId", nameKey: "playlistName" }, { k: "how", t: "select", label: "When", opts: HOW, def: "segue" }],
+    "switch-playlist": [{ k: "playlist", t: "playlist", label: "Playlist", idKey: "playlistId", nameKey: "playlistName" }, { k: "how", t: "select", label: "When", opts: HOW, def: "segue" }, { t: "note", text: PROGRAM_HINT }],
     "schedule-change": [
       { k: "playlist", t: "playlist", label: "Playlist", idKey: "playlistId", nameKey: "playlistName" },
       { k: "when", t: "select", label: "Schedule", opts: [["minute", "At a minute of the hour"], ["offset", "After a delay"]], def: "minute" },
       { k: "minute", t: "number", label: "Minute (0-59)", min: 0, max: 59, ph: "0", showIf: function (s) { return (s.when || "minute") === "minute"; } },
       { k: "offsetMin", t: "number", label: "Minutes from now", min: 1, ph: "5", showIf: function (s) { return s.when === "offset"; } },
-      { k: "how", t: "select", label: "Change", opts: HOW, def: "segue" }
+      { k: "how", t: "select", label: "Change", opts: HOW, def: "segue" },
+      { t: "note", text: PROGRAM_HINT }
     ],
     "fire-item": [{ k: "item", t: "item", label: "Item", idKey: "itemId", nameKey: "itemTitle", durKey: "durationMs" }],
     "program-start": [{ k: "playlist", t: "playlist", label: "Playlist", idKey: "playlistId", nameKey: "playlistName" }, { t: "note", text: "Hold the key to cancel tonight's fallback automatic start." }],
@@ -105,7 +107,10 @@
   }
   // a program key lists the programs of its station (and those of no station): another station's show never shows up
   var PROGRAM_KEYS = { "program-start": true, "program-arm": true, "fire-block": true };
+  // a playlist switch never loads a program (a sequential playlist with blocks): it would start half of it
+  var SWITCH_KEYS = { "switch-playlist": true, "schedule-change": true };
   function forThisStation(list) {
+    if (SWITCH_KEYS[actionName]) return list.filter(function (p) { return !p.program; });
     if (!PROGRAM_KEYS[actionName]) return list;
     return list.filter(function (p) { return !p.station || p.station === settings.station; });
   }
@@ -263,43 +268,6 @@
     });
   }
 
-  // ---- the key's own face -----------------------------------------------------------------------------------
-
-  // A picture made 144 px square (the key's size) as a PNG data URI, so the settings stay small.
-  function pictureOf(file, cb) {
-    var rd = new FileReader();
-    rd.onload = function () {
-      var img = new Image();
-      img.onload = function () {
-        var c = document.createElement("canvas"); c.width = 144; c.height = 144;
-        var g = c.getContext("2d"), s = Math.max(144 / img.width, 144 / img.height);
-        var w = img.width * s, h = img.height * s;
-        g.drawImage(img, (144 - w) / 2, (144 - h) / 2, w, h);
-        cb(c.toDataURL("image/png"));
-      };
-      img.onerror = function () { showActionError("That file is not a picture this panel can read."); };
-      img.src = rd.result;
-    };
-    rd.readAsDataURL(file);
-  }
-  function fillFace() {
-    $("f-label").value = settings.label || "";
-    $("f-color").value = settings.labelColor || "#f4f5f7";
-    $("f-tint").checked = settings.tintActive === true;
-    $("f-img-clear").disabled = !settings.imageIdle;
-    $("f-img2-clear").disabled = !settings.imageActive;
-  }
-  function bindFace() {
-    $("f-label").addEventListener("input", function () { setKey("label", this.value); });
-    $("f-color").addEventListener("input", function () { setKey("labelColor", this.value); });
-    $("f-color-clear").addEventListener("click", function () { setKey("labelColor", ""); fillFace(); });
-    $("f-tint").addEventListener("change", function () { setKey("tintActive", this.checked ? true : ""); });
-    [["f-img", "imageIdle"], ["f-img2", "imageActive"]].forEach(function (x) {
-      $(x[0]).addEventListener("change", function () { var f = this.files && this.files[0]; if (f) pictureOf(f, function (d) { setKey(x[1], d); fillFace(); }); });
-      $(x[0] + "-clear").addEventListener("click", function () { setKey(x[1], ""); $(x[0]).value = ""; fillFace(); });
-    });
-  }
-
   // ---- the Stream Deck socket -------------------------------------------------------------------------------
 
   window.connectElgatoStreamDeckSocket = function (port, inUUID, registerEvent, info, actionInfo) {
@@ -309,9 +277,7 @@
     settings = (ai.payload && ai.payload.settings) || {};
     $("action-title").textContent = "Key";
     bindBox();
-    bindFace();
     fillBox();
-    fillFace();
     $("station-section").hidden = !!NO_STATION[actionName];
     renderFields();
     // the panel shown again (another key, then this one): the lists are read again
@@ -324,7 +290,7 @@
     ws.onmessage = function (ev) {
       var m = JSON.parse(ev.data);
       if (m.event === "didReceiveGlobalSettings") { globals = (m.payload && m.payload.settings) || {}; playlistsCache = null; fillBox(); fillStations(); renderFields(); }
-      else if (m.event === "didReceiveSettings") { settings = (m.payload && m.payload.settings) || {}; fillBox(); fillFace(); renderFields(); }
+      else if (m.event === "didReceiveSettings") { settings = (m.payload && m.payload.settings) || {}; fillBox(); renderFields(); }
       else if (m.event === "sendToPropertyInspector") onPluginMessage(m.payload);
     };
   };

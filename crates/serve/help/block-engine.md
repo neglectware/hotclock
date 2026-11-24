@@ -10,7 +10,7 @@ The **program** is the playlist that a station runs at the top level. It has a s
 
 - **T0** is the moment the program started. A block timed *after T0* moves with T0. A block at a fixed time of day, or a recurrence, never moves.
 - **How T0 is set.** For a program started by hand, T0 is the moment of the press, early or late. You start a program by hand with **Change program…** on [On Air](on-air#start-program), the API, or a key on a control surface. For a program that starts itself on a schedule, T0 is the scheduled time. A program joined in progress can use the scheduled time as T0, even when it starts later (see [late starts](#late-starts)).
-- **Expected starts.** A start block set to *expected, started by hand* only tells when the show is expected. Nothing starts by itself. The page shows "expected 18:45" with a countdown. A hand start within the start block's window (60 minutes by default) uses up that occurrence, and the page stops offering it.
+- **Expected starts.** A start block set to *expected, started by hand* only tells when the show is expected. Nothing starts by itself. The page shows "expected 18:45" with a countdown. A hand start uses up the occurrences of its day: one that was due up to 60 minutes before the press (the start block's window), and any later that day. So a test start in the morning uses up the evening's start. The page then shows the next one, with its day: `expected Mon 19 Oct 18:45`. A press still starts the program at any time.
 - **Fallback start.** You can give a start block a fallback. If nobody starts the show by its time plus a grace period, the show starts itself. See [the fallback start](#fallback-start) below.
 
 ### Start a program {#start-a-program}
@@ -22,7 +22,9 @@ A start by hand always starts the program again from the top, with T0 at the pre
 - **The same program runs**: it starts again from its first row. Its timed blocks move to the new T0. The blocks at T0 + 0, like an unmute, run again once. The blocks of the earlier start do not run.
 - **A stop is fading out**: it finishes first, and the program starts right after it.
 
-The program card on On Air says who started the program: `by hand from the Stream Deck`, `by hand on this page`, or `by hand through the API`. Only a [fallback start](#fallback-start) says `automatically`. Other starts say why: `by the schedule`, `by a playlist switch`, `when the program before it ended`, `after an abort` or `when the station started`.
+A program only starts this way. A playlist switch (**Start / Switch Playlist**, `POST /api/v1/playlist/switch`) and a one-time **Schedule Change** never load a program. The box refuses them for a sequential playlist with blocks: "`Eve Monday` is a program (a sequential playlist with blocks): start it with Start Playlist as Program". This also holds for a copy of a show. **Copy** keeps the blocks, so the copy is a program too.
+
+The program card on On Air says who started the program: `by hand from the Stream Deck`, `by hand on this page`, or `by hand through the API`. Only a [fallback start](#fallback-start) says `automatically`. Other starts say why: `by the schedule`, `by a playlist switch`, `when the program before it ended`, `after an abort` (the default playlist after **End program**) or `when the station started`.
 
 ### The fallback start {#fallback-start}
 
@@ -201,6 +203,7 @@ A restart continues the program. The station keeps T0, the cursor and the block 
 | **Fire** (fire a block) | A block of the running program acts now, as if its time had come. It is logged as fired by hand and does not fire again. |
 | **Skip** (skip the next block) | The cursor passes the block where it stands, or the next block at a time is skipped (logged `skipped`). The button is on the row of the next block. |
 | **End program** (the ⋯ menu) | The program ends with no more blocks. **End program, music continues** leaves what plays. **End program and stop the audio** stops it too. Each item needs a hold of one second. |
+| **Move the show time** | Moves the show time of the running program for this run. Every block timed from it moves with it. **Put back** returns it to the playlist's time. See [Timed blocks](timed-blocks#show-time). |
 | **Arm** / **Disarm** | Turns the fallback start of the next occurrence on or off. |
 
 An outside program can also send `POST /api/v1/external/continue` to release a Wait for the operator.

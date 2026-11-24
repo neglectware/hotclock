@@ -30,6 +30,26 @@ impl Zone {
         })
     }
 
+    /// The machine's time zone (`TZ`, else `/etc/localtime`), named by its IANA name when the system says one
+    /// (`/etc/timezone` when the link does not); UTC when there is none.
+    pub fn system() -> Zone {
+        match TimeZone::try_system() {
+            Ok(tz) => {
+                let name = tz
+                    .iana_name()
+                    .map(str::to_string)
+                    .or_else(|| {
+                        let t = std::fs::read_to_string("/etc/timezone").ok()?;
+                        let t = t.trim();
+                        TimeZone::get(t).ok().map(|_| t.to_string())
+                    })
+                    .unwrap_or_else(|| "system".into());
+                Zone { tz, name }
+            }
+            Err(_) => Zone::utc(),
+        }
+    }
+
     pub fn utc() -> Zone {
         Zone {
             tz: TimeZone::UTC,
@@ -292,6 +312,9 @@ pub enum When {
     Recurrence { cron: Cron },
     /// A local date and time, once (`2026-10-31T18:00:00`).
     Date { local: String },
+    /// The program's show time plus an offset, which may be negative (`-20000` is 20 s before it). The
+    /// show time is set on the playlist's `start` block and can be moved for one run (4.5).
+    Show { offset_ms: i64 },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -358,6 +381,13 @@ impl TimeSpec {
         }
     }
 
+    pub fn show(offset_ms: i64) -> TimeSpec {
+        TimeSpec {
+            when: When::Show { offset_ms },
+            skip_dates: vec![],
+        }
+    }
+
     pub fn recurrence(cron: &str) -> Result<TimeSpec, String> {
         Ok(TimeSpec {
             when: When::Recurrence {
@@ -395,9 +425,17 @@ impl TimeSpec {
         self
     }
 
-    /// Relative and `Local` times need the program's T0.
+    /// Relative, `Local` and `Show` times need the program's T0 (a show time is found from T0's date).
     pub fn needs_t0(&self) -> bool {
-        matches!(self.when, When::Relative { .. } | When::Local { .. })
+        matches!(
+            self.when,
+            When::Relative { .. } | When::Local { .. } | When::Show { .. }
+        )
+    }
+
+    /// A time given from the program's show time.
+    pub fn needs_show(&self) -> bool {
+        matches!(self.when, When::Show { .. })
     }
 
     pub fn is_recurring(&self) -> bool {
@@ -405,7 +443,8 @@ impl TimeSpec {
     }
 
     /// Every instant of the spec in `(after_ms, upto_ms]`, ascending. `t0_ms` is the program's T0 (needed
-    /// for `Relative` and `Local`; without it those give nothing).
+    /// for `Relative` and `Local`; without it those give nothing). A `Show` time gives nothing here: use
+    /// [`TimeSpec::occurrences_show`].
     pub fn occurrences(
         &self,
         zone: &Zone,
@@ -413,21 +452,25 @@ impl TimeSpec {
         after_ms: i64,
         upto_ms: i64,
     ) -> Vec<i64> {
+        self.occurrences_show(zone, t0_ms, None, after_ms, upto_ms)
+    }
+
+    /// As [`TimeSpec::occurrences`], with the program's show time (`show_ms`, needed for `Show`).
+    pub fn occurrences_show(
+        &self,
+        zone: &Zone,
+        t0_ms: Option<i64>,
+        show_ms: Option<i64>,
+        after_ms: i64,
+        upto_ms: i64,
+    ) -> Vec<i64> {
         let mut out: Vec<i64> = match &self.when {
             When::Relative { offset_ms } => t0_ms.map(|t| t + offset_ms).into_iter().collect(),
-            When::Local { at, day_offset } => {
-                let (Some(t0), Ok(tod)) = (t0_ms, parse_time_of_day(at)) else {
-                    return vec![];
-                };
-                let d0 = zone.civil(t0).date();
-                let d = d0
-                    .checked_add(jiff::Span::new().days(*day_offset))
-                    .unwrap_or(d0);
-                civil_of(d, tod)
-                    .and_then(|dt| zone.compatible(dt))
-                    .into_iter()
-                    .collect()
-            }
+            When::Show { offset_ms } => show_ms.map(|t| t + offset_ms).into_iter().collect(),
+            When::Local { at, day_offset } => t0_ms
+                .and_then(|t0| local_on_t0_date(zone, t0, at, *day_offset))
+                .into_iter()
+                .collect(),
             When::Date { local } => local
                 .parse::<DateTime>()
                 .ok()
@@ -485,12 +528,27 @@ impl TimeSpec {
         after_ms: i64,
         limit_ms: i64,
     ) -> Option<i64> {
+        self.first_after_show(zone, t0_ms, None, after_ms, limit_ms)
+    }
+
+    /// As [`TimeSpec::first_after`], with the program's show time.
+    pub fn first_after_show(
+        &self,
+        zone: &Zone,
+        t0_ms: Option<i64>,
+        show_ms: Option<i64>,
+        after_ms: i64,
+        limit_ms: i64,
+    ) -> Option<i64> {
         // Recurrences are searched a window at a time so a daily one does not enumerate a year.
         let mut from = after_ms;
         let end = after_ms.saturating_add(limit_ms);
         while from < end {
             let to = (from + 8 * 86_400_000).min(end);
-            if let Some(t) = self.occurrences(zone, t0_ms, from, to).first() {
+            if let Some(t) = self
+                .occurrences_show(zone, t0_ms, show_ms, from, to)
+                .first()
+            {
                 return Some(*t);
             }
             from = to;
@@ -532,8 +590,30 @@ impl TimeSpec {
             },
             When::Recurrence { cron } => cron.src.clone(),
             When::Date { local } => local.clone(),
+            When::Show { offset_ms } => {
+                let s = offset_ms.abs() / 1000;
+                let ms = offset_ms.abs() % 1000;
+                let sign = if *offset_ms < 0 { '-' } else { '+' };
+                let mut t = format!("{:02}:{:02}:{:02}", s / 3600, (s / 60) % 60, s % 60);
+                if ms != 0 {
+                    t.push_str(&format!(".{ms:03}"));
+                }
+                format!("show time {sign} {t}")
+            }
         }
     }
+}
+
+/// A local time of day (`HH:MM[:SS[.mmm]]`) on the local date of `t0_ms` plus `day_offset` days, as an
+/// instant. A time in the spring-forward gap gives the first valid instant after it, a time in the fall-back
+/// fold the earlier one.
+pub fn local_on_t0_date(zone: &Zone, t0_ms: i64, at: &str, day_offset: i64) -> Option<i64> {
+    let tod = parse_time_of_day(at).ok()?;
+    let d0 = zone.civil(t0_ms).date();
+    let d = d0
+        .checked_add(jiff::Span::new().days(day_offset))
+        .unwrap_or(d0);
+    civil_of(d, tod).and_then(|dt| zone.compatible(dt))
 }
 
 #[cfg(test)]
@@ -640,6 +720,36 @@ mod tests {
             one_off.occurrences(&z, None, 0, i64::MAX / 2),
             vec![at(&z, "2026-10-31T18:00:00")]
         );
+    }
+
+    #[test]
+    fn show_times_count_from_the_show_time_either_way() {
+        let z = ny();
+        let t0 = at(&z, "2026-10-05T18:45:15");
+        let show = local_on_t0_date(&z, t0, "19:00", 0).unwrap();
+        assert_eq!(show, at(&z, "2026-10-05T19:00:00"));
+        let before = TimeSpec::show(-20_000);
+        assert_eq!(
+            before.occurrences_show(&z, Some(t0), Some(show), 0, i64::MAX / 2),
+            vec![at(&z, "2026-10-05T18:59:40")]
+        );
+        let after = TimeSpec::show(90_000);
+        assert_eq!(
+            after.occurrences_show(&z, Some(t0), Some(show), 0, i64::MAX / 2),
+            vec![at(&z, "2026-10-05T19:01:30")]
+        );
+        // Without a show time, a show time gives nothing (as a relative time does without T0).
+        assert!(before.occurrences(&z, Some(t0), 0, i64::MAX / 2).is_empty());
+        assert!(before.needs_t0() && before.needs_show());
+        assert!(before.check().is_ok());
+        assert_eq!(before.describe(), "show time - 00:00:20");
+        assert_eq!(TimeSpec::show(1_500).describe(), "show time + 00:00:01.500");
+        // The JSON form the editor and the API use.
+        let j: TimeSpec = serde_json::from_str(r#"{"kind":"show","offset_ms":-9000}"#).unwrap();
+        assert_eq!(j, TimeSpec::show(-9000));
+        // A show time just after midnight of T0's date, the next day.
+        let late = local_on_t0_date(&z, t0, "00:05", 1).unwrap();
+        assert_eq!(late, at(&z, "2026-10-06T00:05:00"));
     }
 
     #[test]

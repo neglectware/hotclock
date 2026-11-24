@@ -3,24 +3,27 @@ import type { LibraryConn, StationConn } from "./hub.js";
 import type { HttpResult } from "./http.js";
 import { StationModel } from "./model.js";
 import { KeyPainter, PressTracker } from "./painter.js";
-import { customize } from "./custom.js";
 import { resolveTarget, type KeySettings, type Target } from "./settings.js";
-import { COLORS, noStationFace, offlineFace, renderFace, setupFace, toDataUri, type Face } from "./svg.js";
+import { COLORS, noStationFace, offlineFace, setupFace, type Face } from "./svg.js";
+import { applyView, viewOf, viewSig, type KeyOut, type KeyView } from "./view.js";
 
-/** The part of a Stream Deck key the controller drives. */
-export interface KeyHandle {
-  setImage(dataUri: string): unknown;
+/** The part of a Stream Deck key the controller drives: a standard key (its state, title and picture). */
+export interface KeyHandle extends KeyOut {
   showOk(): unknown;
   showAlert(): unknown;
   setSettings(s: KeySettings): unknown;
+  /** Each view as it is sent (the tests record them; the plugin has no use for it). */
+  shown?(v: KeyView): unknown;
 }
 
 export const LONG_PRESS_MS = 500;
 
 /** One key on a Stream Deck: it binds an action to a station connection, draws it and handles its presses. */
 export class KeyController {
-  readonly painter: KeyPainter;
+  readonly painter: KeyPainter<KeyView>;
   private s: KeySettings = {};
+  /** The person's own title (the app's Title field); empty: none, the key shows its own label. */
+  private userTitle = "";
   private target: Target | null = null;
   private conn: StationConn | null = null;
   private lib: LibraryConn | null = null;
@@ -42,7 +45,15 @@ export class KeyController {
     private readonly env: Env,
   ) {
     this.empty = new StationModel(env.clock);
-    this.painter = new KeyPainter((img) => key.setImage(img), env.clock);
+    this.painter = new KeyPainter<KeyView>(
+      (v, prev) => {
+        applyView(prev, v, key);
+        key.shown?.(v);
+      },
+      env.clock,
+      500,
+      viewSig,
+    );
     const hasLong = def.longPress === "only" || def.longPress === "extra";
     this.press = new PressTracker(
       LONG_PRESS_MS,
@@ -56,6 +67,19 @@ export class KeyController {
   setSettings(s: KeySettings): void {
     this.s = s ?? {};
     this.rebind();
+    this.refresh();
+  }
+
+  /**
+   * The app's title for the key changed (`titleParametersDidChange`). A title the plugin set itself comes back
+   * here too: it is not the person's.
+   */
+  titleChanged(title: string | undefined): void {
+    const t = title ?? "";
+    const mine = this.painter.current?.title;
+    if (mine !== null && mine !== undefined && t === mine) return;
+    if (t === this.userTitle) return;
+    this.userTitle = t;
     this.refresh();
   }
 
@@ -166,17 +190,21 @@ export class KeyController {
       const label = c.conn?.model.displayName || c.t.station || "";
       return this.def.offlineFace ? this.def.offlineFace(label) : offlineFace(label || undefined);
     }
-    // the person's label and pictures over the action's face (problems, setup and offline faces stay as they are)
-    const f = customize(this.def.face(c), this.s);
+    const f = this.def.face(c);
     if (this.flashUntil > c.nowMs) {
-      return { ...f, art: null, lines: [{ text: this.flashText, size: 26, color: COLORS.amber, weight: 700, y: 82 }], bar: null };
+      return { ...f, art: null, lines: [{ text: this.flashText, size: 26, color: COLORS.amber, weight: 700, y: 82 }], bar: null, lit: false, say: this.flashText };
     }
     return f;
   }
 
+  /** What the key shows now, as a standard Stream Deck key. */
+  view(): KeyView {
+    return viewOf(this.face(), this.def.view ?? {}, this.userTitle);
+  }
+
   refresh(): void {
     const face = this.face();
-    this.painter.paint(toDataUri(renderFace(face)));
+    this.painter.paint(viewOf(face, this.def.view ?? {}, this.userTitle));
     // A countdown redraws itself at the moment its digits change, not at the next tick, so it never lags the box by a tick.
     if (this.flipTimer) clearTimeout(this.flipTimer);
     this.flipTimer = null;

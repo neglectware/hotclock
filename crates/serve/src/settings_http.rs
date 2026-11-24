@@ -3,7 +3,7 @@
 use crate::http::{client, Request, Response};
 use crate::library_http::LibraryApi;
 use crate::settings::{self as st, KeyError};
-use common::config::StationConfig;
+use common::config::{GlobalConfig, StationConfig};
 use serde_json::{json, Map, Value};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
@@ -107,6 +107,11 @@ impl LibraryApi {
                 "devices": st::list_devices(Path::new(&proc)),
                 "restart_available": std::env::var("HOTCLOCK_SYSTEMCTL").is_ok() || Path::new("/run/systemd/system").exists(),
                 "pending": st::pending_keys(),
+                "display_status": self.display_status_json(),
+                // the night color: its state now, and the choices of its time zone dropdown
+                "display_night": self.night_snapshot(),
+                "zones": common::night::zone_names(),
+                "system_zone": common::timespec::Zone::system().name(),
             }),
         )
     }
@@ -204,14 +209,57 @@ impl LibraryApi {
                 },
             };
         }
+        // `programs.*` of the global file is the stations': each running station takes it at once (and reads the file
+        // at its next start).
+        if station.is_none() {
+            let mut pv = Map::new();
+            for (d, v) in &changed {
+                if let Some(k) = d.key.strip_prefix("programs.") {
+                    pv.insert(k.to_string(), v.clone());
+                }
+            }
+            if !pv.is_empty() {
+                live_result = self.push_live_to_stations(&pv);
+            }
+        }
         // a live key of the global file is read by its user on every request (the box screen's top bar): saved is applied
-        let live_applied =
-            live_result["applied"].as_bool().unwrap_or(false) || (station.is_none() && saved);
+        let live_applied = live_result["applied"].as_bool().unwrap_or(false)
+            || (station.is_none() && saved && live_result.is_null());
+        // The night color: the display follows the `display` topic, so a save applies on the panel at once.
+        if station.is_none()
+            && saved
+            && changed
+                .iter()
+                .any(|(d, _)| d.key.starts_with("display.night_"))
+        {
+            self.night_changed();
+        }
+        // The display switch: the file is saved first, so the unit's ExecCondition and the boot generator already
+        // read the new value when systemd starts or stops it.
+        let mut display_switch = Value::Null;
+        if let Some((_, v)) = changed.iter().find(|(d, _)| d.apply == st::DISPLAY_SWITCH) {
+            let on = v.as_bool().unwrap_or(true);
+            let verb = if on { "start" } else { "stop" };
+            let r = st::unit_action(verb, st::DISPLAY_UNIT);
+            if let Err(e) = &r {
+                tracing::error!("display switch: {e}");
+            } else {
+                tracing::info!("display switch: {verb} {}", st::DISPLAY_UNIT);
+            }
+            display_switch = json!({
+                "unit": st::DISPLAY_UNIT, "action": verb, "ok": r.is_ok(), "message": r.err(),
+                "status": st::display_status(on),
+            });
+        }
         let items: Vec<Value> = changed
             .iter()
             .map(|(d, v)| {
-                let live = d.apply == st::LIVE || d.apply == st::NEXT_BOUNDARY;
-                json!({"key": d.key, "value": v, "apply": d.apply, "applied": live && live_applied})
+                let applied = if d.apply == st::DISPLAY_SWITCH {
+                    display_switch["ok"] == true
+                } else {
+                    (d.apply == st::LIVE || d.apply == st::NEXT_BOUNDARY) && live_applied
+                };
+                json!({"key": d.key, "value": v, "apply": d.apply, "applied": applied})
             })
             .collect();
         let keys_of = |a: &str| -> Vec<&str> {
@@ -228,8 +276,51 @@ impl LibraryApi {
                 "station_restart": keys_of(st::STATION_RESTART),
                 "library_restart": keys_of(st::LIBRARY_RESTART),
                 "display_restart": keys_of(st::DISPLAY_RESTART),
+                "display_switch": display_switch,
             }),
         )
+    }
+
+    /// Send settings that apply while a station runs to every configured station (`POST /api/v1/live-settings`).
+    /// `applied` is true when every station that answers took them; a station that is not running reads the file at
+    /// its next start, so it does not count against it.
+    fn push_live_to_stations(&self, values: &Map<String, Value>) -> Value {
+        let body = Value::Object(values.clone()).to_string();
+        let mut all = true;
+        let mut out = vec![];
+        for (name, _) in self.station_files() {
+            let Some(addr) = self.station_addr(&name) else {
+                continue;
+            };
+            let r = match client::request(
+                &addr,
+                "POST",
+                "/api/v1/live-settings",
+                &[("content-type", "application/json")],
+                body.as_bytes(),
+                Duration::from_secs(5),
+            ) {
+                Ok(r) if r.status < 300 => json!({"station": name, "applied": true}),
+                Ok(r) => {
+                    all = false;
+                    json!({"station": name, "applied": false, "message": r.json()["error"]["message"]})
+                }
+                Err(e) => {
+                    json!({"station": name, "applied": false, "message": format!("the station does not answer ({e}); it reads the file at its next start")})
+                }
+            };
+            out.push(r);
+        }
+        json!({"applied": all, "stations": out})
+    }
+
+    /// The status display's switch as the global file says it (on when the file cannot be read: that is the default)
+    /// with what systemd and the display itself report. `GET /api/v1/display/status`.
+    pub(crate) fn display_status_json(&self) -> Value {
+        let enabled = GlobalConfig::load_or_default(&self.opts.global_config)
+            .map(|g| g.display.enabled)
+            .unwrap_or(true);
+        st::display_status(enabled)
     }
 
     /// `POST /api/v1/system/restart`: `{"unit": "station", "name": "office"}` or `{"unit": "library"}`. A station is

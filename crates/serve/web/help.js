@@ -64,7 +64,7 @@ const HELP_GEN = {
           const range = d.options.length ? 'one of ' + d.options.join(', ') : (d.kind === 'int' || d.kind === 'float') && d.max ? `${d.min} to ${d.max}` : '';
           count++;
           return h('tr', { id: 'setting-' + d.key.replace(/\./g, '-'), 'data-key': d.key },
-            h('td', {}, helpCode(d.key)), h('td', {}, [d.kind === 'readonly' ? 'fixed' : d.kind === 'numlist' ? 'list of numbers' : d.kind, range ? h('div', { class: 'dim' }, range) : null]),
+            h('td', {}, helpCode(d.key)), h('td', {}, [d.kind === 'readonly' ? 'fixed' : d.kind === 'numlist' ? 'list of numbers' : d.kind === 'minutes_or_never' ? 'minutes or never' : d.kind, range ? h('div', { class: 'dim' }, range) : null]),
             h('td', { class: 'mono' }, fmtDefault(d.default)),
             h('td', {}, h('span', { class: 'chip ' + ap[1] }, ap[0])), h('td', {}, d.help));
         });

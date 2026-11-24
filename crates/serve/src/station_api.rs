@@ -66,6 +66,10 @@ pub struct AudioInfo {
     pub delay_frames: i64,
     /// Starts within the crash-loop window (1.5) and in total since boot, for `hotclock_restarts_total`.
     pub restarts: u64,
+    /// The last sound after silence: how many there have been, and the wall time (ms, with fraction) its first
+    /// sample entered the device's buffer. The start latency is the time from a request to this.
+    pub onset_count: u32,
+    pub onset_wall_ms: f64,
 }
 
 #[derive(Debug)]
@@ -130,6 +134,12 @@ pub enum ApiOp {
     },
     /// `POST /program/continue`.
     ProgramContinue,
+    /// `POST /program/show-time`.
+    ProgramShowTime {
+        set: station::acts::ShowTimeSet,
+    },
+    /// `POST /program/keep-loaded`: cancel the countdown to unloading the stopped program, for this stop.
+    ProgramKeepLoaded,
     /// `POST /program/arm` and `disarm`.
     ProgramArm {
         playlist_id: i64,
@@ -654,6 +664,28 @@ pub fn block_rows(st: &Station, now_ms: i64) -> Vec<(i64, Value)> {
     out
 }
 
+/// "expected 18:45" today; "expected tomorrow 18:45"; else with the day, "expected Mon 19 Oct 18:45" (a hand
+/// start earlier in the day uses up that day's occurrence, and a bare time then read as tonight).
+fn expected_label(zone: &common::timespec::Zone, at_ms: i64, now_ms: i64) -> String {
+    let local = zone.local_string(at_ms);
+    let hm = local.get(11..16).unwrap_or("");
+    let day = zone.date_string(at_ms);
+    if day == zone.date_string(now_ms) {
+        return format!("expected {hm}");
+    }
+    if day == zone.date_string(now_ms + 86_400_000) {
+        return format!("expected tomorrow {hm}");
+    }
+    const WD: [&str; 7] = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+    const MON: [&str; 12] = [
+        "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
+    ];
+    let wd = WD[zone.weekday(at_ms) as usize % 7];
+    let d: u32 = local.get(8..10).and_then(|x| x.parse().ok()).unwrap_or(0);
+    let m: usize = local.get(5..7).and_then(|x| x.parse().ok()).unwrap_or(1);
+    format!("expected {wd} {d} {} {hm}", MON[(m.max(1) - 1) % 12])
+}
+
 /// `GET /program/state` (7.2): the program in progress, its cursor and the levels nested in it, every
 /// block with its time and what became of it, the next block for countdown keys, the next expected start
 /// and `back_time` (4.9).
@@ -687,7 +719,20 @@ pub fn program_state_json(st: &Station, now_ms: i64) -> Value {
         } else {
             "running"
         };
+        // The show time (4.5): the playlist's own, and the one in force when this run moved it.
+        let root_t0 = p.stack.first().map_or(p.t0_ms, |c| c.t0_ms);
+        let own_show = prog
+            .playlists
+            .get(&root)
+            .and_then(|pl| pl.show_time())
+            .and_then(|s| s.instant(&zone, root_t0));
+        let show_time = own_show.map(|own| {
+            let at = p.show_override_ms.unwrap_or(own);
+            json!({"at": iso_ms(at), "at_ms": at, "in_ms": at - now_ms,
+                "moved": p.show_override_ms.is_some(), "playlist_at": iso_ms(own)})
+        });
         json!({
+            "show_time": show_time,
             "run_id": p.run_id, "playlist_id": root, "playlist": name_of(root),
             "t0": iso_ms(p.t0_ms), "t0_ms": p.t0_ms,
             "t0_source": if p.t0_source.is_empty() { "auto" } else { p.t0_source.as_str() },
@@ -761,7 +806,9 @@ pub fn program_state_json(st: &Station, now_ms: i64) -> Value {
             "at": iso_ms(e.at_ms), "in_ms": e.at_ms - now_ms,
             "anchor": if e.manual { "manual" } else { "absolute" },
             "armed": e.armed, "fallback_grace_s": e.fallback_grace_s,
-            "label": format!("expected {}", zone.local_string(e.at_ms).get(11..16).unwrap_or("")),
+            "label": expected_label(&zone, e.at_ms, now_ms),
+            "show_time": prog.playlists.get(&e.playlist_id).and_then(|pl| pl.show_time())
+                .and_then(|s| s.instant(&zone, e.at_ms)).map(|at| json!({"at": iso_ms(at), "at_ms": at, "in_ms": at - now_ms})),
         })
     });
     let last_block = st
@@ -773,9 +820,14 @@ pub fn program_state_json(st: &Station, now_ms: i64) -> Value {
         .rev()
         .find(|r| r.fired_ms.is_some() && r.how != "passed" && r.kind != "back_time")
         .map(|r| json!({"name": r.name, "type": r.kind, "how": r.how, "target": iso_ms(r.target_ms), "fired_at": r.fired_ms.map(iso_ms), "deviation_ms": r.deviation_ms}));
+    // The countdown to unloading a stopped program (`station::unload`): when it unloads, and the setting.
+    let unload = st.unload_due_ms().map(|due| {
+        json!({"at": iso_ms(due), "in_ms": (due - now_ms).max(0), "after_min": st.opts.unload_after_min})
+    });
     json!({
         "last_block": last_block,
         "running": program.is_some(),
+        "unload": unload,
         "program": program,
         "blocks": blocks,
         "upcoming": upcoming_json(&upcoming, now_ms),
@@ -897,6 +949,7 @@ pub fn state_json(
         "output": {
             "device": api.opts.device, "rate": audio.rate, "format": audio.format,
             "period_frames": audio.period_frames, "periods": audio.periods, "open": audio.open,
+            "last_onset": {"count": audio.onset_count, "at_ms": audio.onset_wall_ms},
         },
         "at": iso_ms(now_ms),
     })
@@ -980,6 +1033,14 @@ impl Driver {
     }
 
     /// One step of the API side of the loop.
+    /// Wait up to `timeout` for a command (the runner's pause between steps). A command ends the wait at once, so a
+    /// press is worked on within a millisecond, not at the next 20 ms step (a start from silence is a sampler's).
+    pub fn wait(&mut self, timeout: std::time::Duration) {
+        if let Ok(cmd) = self.rx.recv_timeout(timeout) {
+            self.pending.push_back(Pending { cmd });
+        }
+    }
+
     pub fn step(
         &mut self,
         st: &mut Station,
@@ -1047,6 +1108,17 @@ impl Driver {
             .last_publish
             .is_none_or(|t| t.elapsed() >= Duration::from_millis(250));
         self.events(st, wall, changed);
+        // End program and stop the audio (by the operator or the automatic unload) cleared the program: once nothing
+        // sounds, every client gets the whole state again. The displays hold the last `now` they were sent and drop
+        // it only on a snapshot; without this they showed the last item until they reconnected.
+        if st.announce_clear && st.on_air_info().is_none() {
+            st.announce_clear = false;
+            // the program changed: no cached rotation figures of the playlist that was active
+            self.playlist_json = Value::Null;
+            let s = self.build_state(st, audio, wall, mixer);
+            self.api.emit("snapshot", &s);
+            changed = true;
+        }
         if due || changed || self.publish_missed {
             self.publish(st, audio, wall, mixer);
         }
@@ -1340,6 +1412,7 @@ impl Driver {
                     }),
                     ps["expected"]["at"].as_str().map(str::to_string),
                     ps["expected"]["armed"].as_bool(),
+                    ps["unload"]["at"].as_str().map(str::to_string),
                 )
                     .hash(&mut h);
                 h.finish()
@@ -1617,8 +1690,16 @@ impl Driver {
                 Ok(()) => Exec::Reply(Done(json!({"aborted": true, "stopped_audio": stop_audio}))),
                 Err(e) => Exec::Reply(Refused(409, "refused", e)),
             },
+            ApiOp::ProgramKeepLoaded => match st.keep_loaded() {
+                Ok(()) => Exec::Reply(Done(json!({"kept": true}))),
+                Err(e) => Exec::Reply(Refused(409, "refused", e)),
+            },
             ApiOp::ProgramContinue => match st.program_continue() {
                 Ok(name) => Exec::Reply(Done(json!({"released": name}))),
+                Err(e) => Exec::Reply(Refused(409, "refused", e)),
+            },
+            ApiOp::ProgramShowTime { set } => match st.program_show_time(set.clone()) {
+                Ok(at) => Exec::Reply(Done(json!({"show_time": iso_ms(at), "show_time_ms": at}))),
                 Err(e) => Exec::Reply(Refused(409, "refused", e)),
             },
             ApiOp::ProgramArm {
@@ -1766,6 +1847,26 @@ pub fn latest_frame(api: &StationApi) -> Option<[u8; FRAME_LEN]> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_expected_label_names_the_day_unless_it_is_today() {
+        let z = common::timespec::Zone::named("America/New_York").unwrap();
+        // Monday 2026-10-12 05:21 EDT (09:21 UTC), after a test press that used up tonight's start.
+        let now = 1_791_796_860_000;
+        let at = |s: &str| crate::util::parse_time(s).unwrap_or_else(|| panic!("{s}"));
+        assert_eq!(
+            expected_label(&z, at("2026-10-12T18:45:00-04:00"), now),
+            "expected 18:45"
+        );
+        assert_eq!(
+            expected_label(&z, at("2026-10-13T18:45:00-04:00"), now),
+            "expected tomorrow 18:45"
+        );
+        assert_eq!(
+            expected_label(&z, at("2026-10-19T18:45:00-04:00"), now),
+            "expected Mon 19 Oct 18:45"
+        );
+    }
 
     fn api() -> (Arc<StationApi>, Receiver<ApiCmd>) {
         StationApi::new(ApiOptions {

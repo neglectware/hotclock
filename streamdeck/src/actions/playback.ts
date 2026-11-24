@@ -16,6 +16,7 @@ function fadeBody(c: Ctx): { fade_ms?: number } {
 export const nowPlaying: ActionDef = {
   id: "now-playing",
   uses: "station",
+  view: { live: true, art: true },
   face(c) {
     const m = c.m;
     if (m.safeMode) return textFace({ tag: "now-playing:safe", bg: COLORS.bgRed, main: "SAFE MODE", mainSize: 22, sub: "station is protecting itself", subSize: 11 });
@@ -41,6 +42,8 @@ export const nowPlaying: ActionDef = {
     const remS = rem ? Math.min(totalS, Math.round(rem.ms / 1000)) : 0;
     return {
       tag: `now-playing:${u}`,
+      // the key's title: the time left over the title (the art is the key's picture)
+      title: [rem ? remainingText(rem.ms) : null, ellipsize(now.title, 130, 13)].filter(Boolean).join("\n"),
       repaintMs: rem ? Math.min(flipDown(rem.ms), nextThreshold(rem.ms)) : undefined,
       art,
       artDim: 0.58,
@@ -69,6 +72,7 @@ function nowArt(c: Ctx, artUrl: string | null): Art | null {
 export const elapsedRemaining: ActionDef = {
   id: "elapsed-remaining",
   uses: "station",
+  view: { live: true },
   face(c) {
     const m = c.m;
     const showElapsed = c.s.show === "elapsed";
@@ -101,6 +105,7 @@ export const elapsedRemaining: ActionDef = {
 export const nextUp: ActionDef = {
   id: "next-up",
   uses: "station",
+  view: { live: true },
   face(c) {
     const n = c.m.next;
     if (!n) return textFace({ tag: "next-up:none", top: "NEXT UP", main: "NOTHING", mainColor: COLORS.faint, mainSize: 22, sub: "queued" });
@@ -117,7 +122,13 @@ export const nextUp: ActionDef = {
       subSize: 16,
       subColor: COLORS.text,
     });
-    return { ...f, art: art ? { kind: "image", href: art } : null, artDim: 0.72, repaintMs: inMs !== null ? flipDown(Math.max(0, inMs)) : undefined };
+    return {
+      ...f,
+      art: art ? { kind: "image", href: art } : null,
+      artDim: 0.72,
+      repaintMs: inMs !== null ? flipDown(Math.max(0, inMs)) : undefined,
+      title: ["NEXT", ellipsize(n.title, 130, 13), inMs !== null ? `in ${clock(Math.max(0, inMs))}` : ellipsize(n.artist, 130, 13)].filter(Boolean).join("\n"),
+    };
   },
 };
 
@@ -212,7 +223,8 @@ export const reshuffle: ActionDef = {
   face(c) {
     if ((c.extra.flashUntil as number | undefined) && (c.extra.flashUntil as number) > c.nowMs) {
       const n = c.m.next;
-      return textFace({ tag: "reshuffle:flash", bg: COLORS.bgLit, glyph: "shuffle", top: "NEXT", main: n?.title ?? "(nothing)", mainSize: 17, lines: 3, sub: n?.artist, subColor: COLORS.text });
+      const f = textFace({ tag: "reshuffle:flash", bg: COLORS.bgLit, glyph: "shuffle", top: "NEXT", main: n?.title ?? "(nothing)", mainSize: 17, lines: 3, sub: n?.artist, subColor: COLORS.text });
+      return { ...f, say: `NEXT\n${ellipsize(n?.title ?? "(nothing)", 130, 13)}` };
     }
     return textFace({ tag: "reshuffle", glyph: "shuffle", main: "RESHUFFLE", mainSize: 19, sub: c.m.activePlaylist?.name, subColor: COLORS.faint });
   },
@@ -247,7 +259,9 @@ export const scheduleChange: ActionDef = {
       // The box sends UTC times; the key shows its wall clock, in the box's time zone.
       const at = parseTime(p.at);
       const hm = at === null ? "--:--" : zonedHm(at, c.m.program?.timeZone ?? null);
-      return textFace({ tag: "schedule:pending", bg: COLORS.bgAmber, border: COLORS.amber, glyph: "clock", top: "SCHEDULED", main: hm, mainSize: 38, mainColor: COLORS.amber, sub: "tap to cancel", subColor: COLORS.text });
+      const f = textFace({ tag: "schedule:pending", bg: COLORS.bgAmber, border: COLORS.amber, glyph: "clock", top: "SCHEDULED", main: hm, mainSize: 38, mainColor: COLORS.amber, sub: "tap to cancel", subColor: COLORS.text });
+      // the pending time is live text, over the person's own title
+      return { ...f, lit: true, say: `SCHEDULED\n${hm}` };
     }
     if (numOf(c.s.playlistId) === null) return unsetFace("schedule:unset", "a playlist", "clock");
     const when = c.s.when === "offset" ? `in ${numOf(c.s.offsetMin) ?? 5} min` : `at :${String(numOf(c.s.minute) ?? 0).padStart(2, "0")}`;
@@ -308,19 +322,26 @@ export const fireItem: ActionDef = {
 export const stationStatus: ActionDef = {
   id: "station-status",
   uses: "station",
-  offlineFace: (label) => textFace({ tag: "status:offline", bg: COLORS.bgRed, border: COLORS.red, glyph: "status", main: "OFFLINE", mainSize: 24, mainColor: COLORS.red, sub: label || undefined, subColor: COLORS.text }),
+  offlineFace: (label) => ({
+    ...textFace({ tag: "status:offline", bg: COLORS.bgRed, border: COLORS.red, glyph: "status", main: "OFFLINE", mainSize: 24, mainColor: COLORS.red, sub: label || undefined, subColor: COLORS.text }),
+    lit: false,
+    say: label ? `OFFLINE\n${label}` : "OFFLINE",
+  }),
   face(c) {
     const st = c.m.status();
     const name = c.m.displayName || c.t.station || "station";
     if (st === "critical") {
       const a = c.m.alerts.find((x) => x.severity === "critical");
-      return textFace({ tag: "status:critical", bg: COLORS.bgRed, border: COLORS.red, glyph: "status", main: "ALERT", mainSize: 28, mainColor: COLORS.red, sub: a?.code ?? name, subColor: COLORS.text });
+      const f = textFace({ tag: "status:critical", bg: COLORS.bgRed, border: COLORS.red, glyph: "status", main: "ALERT", mainSize: 28, mainColor: COLORS.red, sub: a?.code ?? name, subColor: COLORS.text });
+      return { ...f, lit: false, say: `ALERT\n${a?.code ?? name}` };
     }
     if (st === "warning") {
       const a = c.m.alerts.find((x) => x.severity === "warning");
-      return textFace({ tag: "status:warning", bg: COLORS.bgAmber, border: COLORS.amber, glyph: "status", main: "WARNING", mainSize: 24, mainColor: COLORS.amber, sub: a?.code ?? name, subColor: COLORS.text });
+      const f = textFace({ tag: "status:warning", bg: COLORS.bgAmber, border: COLORS.amber, glyph: "status", main: "WARNING", mainSize: 24, mainColor: COLORS.amber, sub: a?.code ?? name, subColor: COLORS.text });
+      return { ...f, lit: false, say: `WARNING\n${a?.code ?? name}` };
     }
-    return textFace({ tag: "status:ok", glyph: "status", main: "OK", mainSize: 36, mainColor: COLORS.green, sub: name, subColor: COLORS.dim });
+    // all well: the key is lit (green), with the person's own title or OK
+    return { ...textFace({ tag: "status:ok", glyph: "status", main: "OK", mainSize: 36, mainColor: COLORS.green, sub: name, subColor: COLORS.dim }), lit: true };
   },
   press(c) {
     c.env.openUrl(`http://${c.t.host}:${c.t.libraryPort}/`);
@@ -332,6 +353,7 @@ export const stationStatus: ActionDef = {
 export const loudness: ActionDef = {
   id: "loudness",
   uses: "station",
+  view: { live: true },
   longPress: "extra",
   face(c) {
     const l = c.m.loudness;
@@ -347,7 +369,7 @@ export const loudness: ActionDef = {
     }
     const off = Math.abs(l.window - l.target);
     const ok = off <= 1;
-    return textFace({
+    const f = textFace({
       tag: ok ? "loudness:ok" : "loudness:off-target",
       glyph: "loud",
       top: "LUFS",
@@ -358,6 +380,8 @@ export const loudness: ActionDef = {
       subSize: 17,
       subColor: COLORS.text,
     });
+    // lit (green) while within 1 LU of the target
+    return { ...f, lit: ok };
   },
   long: (c) => c.post("/loudness/reset"),
 };

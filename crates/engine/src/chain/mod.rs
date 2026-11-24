@@ -357,8 +357,11 @@ impl Chain {
                         detector_ms: n("agc", "detector_ms"),
                         program_ms: n("agc", "program_ms"),
                         gate_db: n("agc", "gate_db"),
+                        fast_clamp: cfg.flag("agc", "fast_clamp"),
                         fast_attack_ms: n("agc", "fast_attack_ms"),
                         fast_trigger: n("agc", "fast_trigger_db"),
+                        hold_s: n("agc", "hold_s"),
+                        ratio: n("agc", "ratio"),
                     },
                     rate,
                 )

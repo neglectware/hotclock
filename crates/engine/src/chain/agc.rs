@@ -16,19 +16,26 @@
 //!
 //! ```text
 //! frozen  = the newest sub-block is under the gate, or the fast window has no valid sub-block
-//! desired = clamp(target - min(Lf, Ls), -max_reduction, +max_gain)
+//! desired = clamp((target - min(Lf, Ls)) / ratio, -max_reduction, +max_gain)
 //! gain falls toward desired at no more than down_db_per_s, rises at no more than up_db_per_s,
-//!     rising only after the hold that follows a fast clamp; no change at all while frozen
+//!     rising only after the hold that follows a fast clamp, and `hold_s` after its last fall;
+//!     no change at all while frozen
 //! ```
+//!
+//! The **ratio** (1 to 10) makes the AGC correct 1 / ratio of the distance to the target: at 2, a program 8 dB
+//! over the target is turned down 4 dB. 1 corrects all of it (and divides exactly: the same gain as without it).
+//! The **hold** (`hold_s`, 0 to 10 s) keeps the gain from rising for that long after it last fell, by the slew or
+//! the fast clamp: a snare hit after a quiet passage pulls the gain down, and it does not climb back between hits.
 //!
 //! Taking the lower of the two levels makes the AGC ride a fade up (the fast level falls with the fade while the
 //! program level lags) and keeps it slow on the way down (the program level lags a loud step, the slew limits it).
 //!
 //! # Fast clamp
 //!
-//! When the fast level is `fast_trigger_db` or more over the level the gain was set for (`Lf + gain - target >=
-//! trigger`: a loud song after something quieter, or a loud passage after a quiet one), the gain is pulled toward
-//! `target - Lf` in `fast_attack_ms` (the time to cover 95 percent of the way, a time constant of a third of it) instead of falling at `down_db_per_s`, and its rise is held
+//! With `fast_clamp` on: when the fast level is `fast_trigger_db` or more over the level the gain was set for
+//! (`Lf + gain - target >= trigger`: a loud song after something quieter, or a loud passage after a quiet one; with
+//! a ratio, the gain over `(target - Lf) / ratio`), the gain is pulled toward `(target - Lf) / ratio` in
+//! `fast_attack_ms` (2 to 200 ms: the time to cover 95 percent of the way, a time constant of a third of it) instead of falling at `down_db_per_s`, and its rise is held
 //! for one fast window afterwards. The fast level is a 400 ms energy mean of the valid sub-blocks, so a drum hit
 //! inside a loud program does not move it and does not trigger the clamp; the first valid sub-block after silence
 //! already carries the new level, so the clamp starts within 2 to 4 ms of an onset. The clamp is evaluated once
@@ -76,8 +83,14 @@ pub struct AgcParams {
     pub detector_ms: f64,
     pub program_ms: f64,
     pub gate_db: f64,
+    /// The fast clamp acts (off: the gain always falls at `down`).
+    pub fast_clamp: bool,
     pub fast_attack_ms: f64,
     pub fast_trigger: f64,
+    /// After the gain falls, it may not rise for this long after the last fall, s (0: at once).
+    pub hold_s: f64,
+    /// The share of the distance to the target that the AGC corrects is 1 / ratio (1: all of it).
+    pub ratio: f64,
 }
 
 #[derive(Clone, Debug)]
@@ -106,6 +119,10 @@ pub struct Agc {
     hold_up: usize,
     clamping: bool,
     hold_frames: usize,
+    /// Frames the gain may not rise yet: the recovery hold after its last fall.
+    rise_hold: usize,
+    /// The recovery hold, frames.
+    rise_hold_frames: usize,
     /// Invalid sub-blocks in a row up to now.
     gap_run: usize,
     /// Sub-blocks since the program last resumed after a break (saturating); the fast level reads no further back.
@@ -160,12 +177,14 @@ impl Agc {
             nf: ((p.detector_ms / 2.0).round() as usize).clamp(1, RING),
             ns: ((p.program_ms / 2.0).round() as usize).clamp(1, RING),
             gate_e: 10f64.powf((p.target + p.gate_db + OFFSET) / 10.0),
-            fa_c: if p.fast_attack_ms > 0.0 {
+            fa_c: if p.fast_clamp && p.fast_attack_ms > 0.0 {
                 1.0 - (-3.0 * (hop as f64) / (p.fast_attack_ms * 0.001 * rate)).exp()
             } else {
                 0.0
             },
             hold_frames: (p.detector_ms * 0.001 * rate) as usize,
+            rise_hold: 0,
+            rise_hold_frames: (p.hold_s.max(0.0) * rate) as usize,
             gap_run: 0,
             since_break: RING,
             p,
@@ -215,6 +234,7 @@ impl Agc {
         self.ramp_step = old.ramp_step;
         self.ramp_left = old.ramp_left;
         self.hold_up = old.hold_up;
+        self.rise_hold = old.rise_hold.min(self.rise_hold_frames);
         self.gap_run = old.gap_run;
         self.since_break = old.since_break;
         self.clamping = old.clamping;
@@ -311,7 +331,9 @@ impl Agc {
             return;
         }
         let leff = self.lf.min(self.ls);
-        let desired = (self.p.target - leff).clamp(-self.p.max_red, self.p.max_gain);
+        // the ratio: the AGC heads for 1 / ratio of the correction (a division by 1 is exact: the same gain as before)
+        let desired =
+            ((self.p.target - leff) / self.p.ratio).clamp(-self.p.max_red, self.p.max_gain);
         self.desired = desired;
         // A fade being ridden up: the fast level is falling steadily, it is a dB or more under the program level and the
         // gain is following it up (or already there: the gain tracks a slow fade with no lag worth the name, or it is at
@@ -319,21 +341,33 @@ impl Agc {
         self.fading = self.falling && self.lf < self.ls - 1.0 && desired >= self.g_db - 0.05;
         // The fast clamp on a loud onset.
         // Once it has started it runs until the gain is within 0.5 dB of the level it is pulling toward.
-        let over = self.lf + self.g_db - self.p.target;
+        // How far the gain is over the one the fast level asks for: with ratio 1, how far the output would be over
+        // the target (the expression of before, so the same rounding); with a ratio, over 1 / ratio of the correction.
+        let over = if self.p.ratio == 1.0 {
+            self.lf + self.g_db - self.p.target
+        } else {
+            self.g_db - (self.p.target - self.lf) / self.p.ratio
+        };
         if self.fa_c > 0.0 && (over >= self.p.fast_trigger || (self.clamping && over > 0.5)) {
-            let fast = (self.p.target - self.lf).clamp(-self.p.max_red, self.p.max_gain);
+            let fast =
+                ((self.p.target - self.lf) / self.p.ratio).clamp(-self.p.max_red, self.p.max_gain);
             if fast < self.g_db {
                 self.clamping = true;
                 self.g_db += (fast - self.g_db) * self.fa_c;
                 self.hold_up = self.hold_frames;
+                self.rise_hold = self.rise_hold_frames;
                 return;
             }
         }
         self.clamping = false;
         let dt = self.hop as f64 / self.rate;
         if desired < self.g_db {
+            let before = self.g_db;
             self.g_db = desired.max(self.g_db - self.p.down * dt);
-        } else if self.hold_up == 0 {
+            if self.g_db < before {
+                self.rise_hold = self.rise_hold_frames;
+            }
+        } else if self.hold_up == 0 && self.rise_hold == 0 {
             self.g_db = desired.min(self.g_db + self.p.up * dt);
         }
     }
@@ -363,6 +397,9 @@ impl Agc {
     fn tick(&mut self) {
         if self.hold_up > 0 {
             self.hold_up = self.hold_up.saturating_sub(TICK);
+        }
+        if self.rise_hold > 0 {
+            self.rise_hold = self.rise_hold.saturating_sub(TICK);
         }
     }
 
@@ -401,5 +438,183 @@ impl Agc {
                 self.hop_done();
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const RATE: f64 = 48_000.0;
+
+    fn params() -> AgcParams {
+        // the schema's defaults
+        AgcParams {
+            target: -20.0,
+            max_gain: 12.0,
+            max_red: 9.0,
+            down: 3.0,
+            up: 2.5,
+            detector_ms: 400.0,
+            program_ms: 3000.0,
+            gate_db: -35.0,
+            fast_clamp: true,
+            fast_attack_ms: 10.0,
+            fast_trigger: 6.0,
+            hold_s: 0.0,
+            ratio: 1.0,
+        }
+    }
+
+    /// A 1 kHz sine whose K-weighted level is close to `db` (its RMS), stereo.
+    fn tone(secs: f64, db: f64) -> Vec<f32> {
+        let a = 10f64.powf(db / 20.0) * std::f64::consts::SQRT_2;
+        (0..(secs * RATE) as usize)
+            .flat_map(|i| {
+                let v = (a * (2.0 * std::f64::consts::PI * 1000.0 * i as f64 / RATE).sin()) as f32;
+                [v, v]
+            })
+            .collect()
+    }
+
+    /// Run `x` through, returning the gain every 10 ms.
+    fn run(agc: &mut Agc, mut x: Vec<f32>) -> Vec<f64> {
+        let mut out = vec![];
+        for part in x.chunks_mut(960) {
+            agc.process(part);
+            out.push(agc.gain_db());
+        }
+        out
+    }
+
+    #[test]
+    fn the_fast_clamp_switch_off_lets_the_gain_fall_at_the_down_rate_only() {
+        for (clamp, max_after_100ms) in [(true, -5.0), (false, -0.2)] {
+            let mut a = Agc::new(
+                AgcParams {
+                    fast_clamp: clamp,
+                    ..params()
+                },
+                RATE,
+            );
+            run(&mut a, tone(4.0, -20.0));
+            // a gap, then a loud song 10 dB over the target
+            run(&mut a, tone(0.5, -120.0));
+            let g = run(&mut a, tone(0.1, -10.0));
+            let last = *g.last().unwrap();
+            if clamp {
+                assert!(
+                    last < max_after_100ms,
+                    "the clamp pulls the gain down in 100 ms: {last}"
+                );
+            } else {
+                assert!(
+                    last > -0.31 && last <= max_after_100ms + 0.2,
+                    "3 dB/s for 100 ms: {last}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn a_hold_keeps_the_gain_down_between_snare_hits_after_a_quiet_passage() {
+        // quiet passage: the gain rises; then a hit every second over the quiet bed
+        let mk = |hold_s: f64| {
+            let mut a = Agc::new(AgcParams { hold_s, ..params() }, RATE);
+            run(&mut a, tone(8.0, -27.0));
+            let mut trace = vec![];
+            for _ in 0..3 {
+                trace.extend(run(&mut a, tone(0.05, -6.0)));
+                trace.extend(run(&mut a, tone(0.95, -27.0)));
+            }
+            trace
+        };
+        let free = mk(0.0);
+        let held = mk(2.0);
+        // right after the first hit both are down; a second later the free gain has climbed, the held one has not
+        let after_hit = held[6];
+        assert!(
+            (held[95] - after_hit).abs() < 0.05,
+            "held: {after_hit} then {}",
+            held[95]
+        );
+        assert!(
+            free[95] > free[6] + 1.0,
+            "without a hold the gain climbs back: {} then {}",
+            free[6],
+            free[95]
+        );
+        // the hold runs from the last fall: after the hits stop it rises again
+        let mut a = Agc::new(
+            AgcParams {
+                hold_s: 2.0,
+                ..params()
+            },
+            RATE,
+        );
+        run(&mut a, tone(8.0, -27.0));
+        run(&mut a, tone(0.05, -6.0));
+        let g = run(&mut a, tone(4.0, -27.0));
+        assert!((g[150] - g[10]).abs() < 0.05, "held for 2 s");
+        assert!(
+            g[399] > g[150] + 1.0,
+            "rising again after the hold: {} then {}",
+            g[150],
+            g[399]
+        );
+    }
+
+    #[test]
+    fn a_ratio_corrects_a_share_of_the_distance_on_the_slow_path_and_the_fast_clamp() {
+        // a steady program 8 dB over the target: ratio 1 corrects 8 dB, ratio 2 four, ratio 4 two
+        for (ratio, want) in [(1.0, -8.0), (2.0, -4.0), (4.0, -2.0)] {
+            let mut a = Agc::new(AgcParams { ratio, ..params() }, RATE);
+            let g = run(&mut a, tone(12.0, -12.0));
+            let last = *g.last().unwrap();
+            assert!((last - want).abs() < 0.3, "ratio {ratio}: {last}");
+        }
+        // a quiet program 6 dB under: ratio 2 lifts it 3 dB
+        let mut a = Agc::new(
+            AgcParams {
+                ratio: 2.0,
+                ..params()
+            },
+            RATE,
+        );
+        let g = run(&mut a, tone(12.0, -26.0));
+        assert!(
+            (g.last().unwrap() - 3.0).abs() < 0.3,
+            "{}",
+            g.last().unwrap()
+        );
+        // the fast clamp with ratio 2: a 16 dB onset pulls the gain about 8 dB down at once, and the clamp ends there
+        let mut a = Agc::new(
+            AgcParams {
+                ratio: 2.0,
+                ..params()
+            },
+            RATE,
+        );
+        run(&mut a, tone(4.0, -20.0));
+        run(&mut a, tone(0.5, -120.0));
+        let g = run(&mut a, tone(0.2, -4.0));
+        let last = *g.last().unwrap();
+        assert!((last + 8.0).abs() < 0.6, "{last}");
+        run(&mut a, tone(1.0, -4.0));
+        assert_ne!(
+            a.state(),
+            AgcState::Clamping,
+            "the clamp ends at the ratio's gain"
+        );
+        // max reduction still bounds it
+        let mut a = Agc::new(
+            AgcParams {
+                ratio: 1.5,
+                ..params()
+            },
+            RATE,
+        );
+        let g = run(&mut a, tone(12.0, 0.0));
+        assert!(*g.last().unwrap() >= -9.0 - 1e-9);
     }
 }

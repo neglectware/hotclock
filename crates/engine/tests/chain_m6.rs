@@ -344,7 +344,7 @@ fn acceptance_2_attack_and_release_time_constants() {
 
 fn agc_cfg(extra: Value) -> ChainConfig {
     let mut o = json!({"enabled": true, "target_dbfs": -20.0, "max_gain_db": 24.0, "max_reduction_db": 24.0,
-        "down_db_per_s": 3.0, "up_db_per_s": 1.0, "fast_attack_ms": 0.0, "gate_db": -35.0});
+        "down_db_per_s": 3.0, "up_db_per_s": 1.0, "fast_clamp": false, "gate_db": -35.0});
     for (k, v) in extra.as_object().unwrap() {
         o[k] = v.clone();
     }
@@ -1208,7 +1208,7 @@ fn the_makeup_glides_at_three_db_a_second_and_cancels_the_controllers_shift() {
 fn the_agc_state_passes_riding_a_fade_then_clamping_then_riding() {
     use engine::chain::agc::AgcState;
     let cfg = agc_cfg(
-        json!({"up_db_per_s": 4.0, "fast_attack_ms": 20.0, "max_gain_db": 12.0, "max_reduction_db": 12.0}),
+        json!({"up_db_per_s": 4.0, "fast_clamp": true, "fast_attack_ms": 20.0, "max_gain_db": 12.0, "max_reduction_db": 12.0}),
     );
     let mut ch = build(&cfg);
     // 8 s at -20 dBFS, a 6 s fade to -38 dBFS, 3 s there, then a jump to -8 dBFS for 6 s.

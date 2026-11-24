@@ -634,6 +634,7 @@ fn start_block(id: i64, cron: &str, anchor: Anchor, how: StartHow) -> Block {
             late_s: 300,
             arm_window_min: 60,
             fallback_grace_s: None,
+            show_time: None,
         }),
         Trigger::First,
         None,

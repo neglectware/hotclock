@@ -31,7 +31,7 @@ You can also give a block of those kinds a time here. A message or a gain change
 
 ## When it acts
 
-Select one of four ways to say when the block acts. Times are in the box's time zone.
+Select one of five ways to say when the block acts. Times are in the box's time zone.
 
 | Kind | Written as | Example |
 |---|---|---|
@@ -39,6 +39,7 @@ Select one of four ways to say when the block acts. Times are in the box's time 
 | **after T0** | `hh:mm:ss` after the playlist became the program | `00:14:40` |
 | **at a time of day** | `hh:mm`, with **next day** for a time after midnight | `00:30` with next day: half past midnight after the program started |
 | **on one date** | `YYYY-MM-DDThh:mm:ss` | `2026-12-31T23:59:00` |
+| **from the show time** | `hh:mm:ss` **before** or **after** the show time. Typed, it is `show - hh:mm:ss` or `show + hh:mm:ss` | `show - 00:00:20`: 20 seconds before the show starts |
 
 In a recurrence, each field is one of these:
 
@@ -51,6 +52,16 @@ In a recurrence, each field is one of these:
 The weekday is 0 to 7. Both 0 and 7 are Sunday, and Monday is 1. The buttons **every hour** and **every half hour** fill in the two most common recurrences.
 
 **T0** is the moment the playlist became the station's program: when it was switched to, started, or started itself on its schedule. Times after T0 move with it. Recurrences and dates are fixed times and never move. Station blocks have no T0, so they accept only recurrences and dates.
+
+### The show time {#show-time}
+
+The **show time** is the moment the program builds to, for example 19:00 when the show goes live. Set it on the playlist's Start block (**Show time**, with **next day** for a show after midnight). Then time the blocks around it: the music fades at `show - 00:00:20`, the console fader goes down at `show - 00:00:09`, the bed starts at `show + 00:00:01`.
+
+A block timed from the show time is a fixed time of day, so it does not move when you start the program early or late. Start the pre-show at 18:45 or at 18:51, and the fade still acts at 18:59:40.
+
+When the show must start at another time for one night, move the show time in the **Program** unit on [On Air](on-air#program). Every block timed from it moves with it. The playlist does not change, and the next run uses the playlist's show time again. A block that has already acted does not act again when the show time moves later.
+
+Other programs can read the show time from `GET /api/v1/program/state` (`program.show_time`, or `expected.show_time` before the program starts), for example to show a countdown to it.
 
 Hotclock handles daylight saving time for you. At the hour when clocks go back, an hourly recurrence fires once per real hour. On the day clocks go forward, a time that does not exist fires at the first real instant after it.
 

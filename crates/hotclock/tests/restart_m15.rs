@@ -289,4 +289,17 @@ fn playlist_commands_refuse_n_below_one_and_list_the_window_kept() {
         ),
         "{out}"
     );
+    // A second acceptance run: the playlist exists (create refuses), `clear` empties it and it fills again.
+    assert!(!run(&["playlist", "create", "Office"]).status.success());
+    let o = run(&["playlist", "clear", "Office"]);
+    assert!(o.status.success(), "{}", String::from_utf8_lossy(&o.stderr));
+    let out = String::from_utf8_lossy(&run(&["playlist", "list"]).stdout).to_string();
+    assert!(
+        out.contains("Office  (shuffle, no repeat 120 min, 0 entries)"),
+        "{out}"
+    );
+    assert!(run(&add).status.success());
+    let out = String::from_utf8_lossy(&run(&["playlist", "list"]).stdout).to_string();
+    assert!(out.contains(&format!("{} entries)", ids.len())), "{out}");
+    assert!(!run(&["playlist", "clear", "Nope"]).status.success());
 }

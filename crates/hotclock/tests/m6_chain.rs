@@ -142,7 +142,7 @@ fn acceptance_8_agc_gain_follows_the_chains_own_gain() {
         "bypass",
         &[(
             "agc",
-            json!({"enabled": true, "max_gain_db": 24.0, "max_reduction_db": 24.0, "up_db_per_s": 1.0, "fast_attack_ms": 0.0}),
+            json!({"enabled": true, "max_gain_db": 24.0, "max_reduction_db": 24.0, "up_db_per_s": 1.0, "fast_clamp": false}),
         )],
     );
     let mut rig = Rig::new(&c);
@@ -281,7 +281,7 @@ fn acceptance_9_stage_levels_and_reductions_match_an_independent_measurement() {
         (
             "agc",
             0,
-            json!({"enabled": true, "target_dbfs": -20.0, "fast_attack_ms": 0.0, "max_gain_db": 24.0, "up_db_per_s": 40.0, "down_db_per_s": 40.0}),
+            json!({"enabled": true, "target_dbfs": -20.0, "fast_clamp": false, "max_gain_db": 24.0, "up_db_per_s": 40.0, "down_db_per_s": 40.0}),
             -33.0,
         ),
         // The multiband's reduction is the mean of its bands': one tone in each of three bands, at the same level,

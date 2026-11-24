@@ -26,6 +26,7 @@ listen = "0.0.0.0:8300"
 # The status display on the box's own monitor (architecture 11, hotclock-display.service). Every key has a
 # default (the 7-inch 1024 x 600 panel); a different screen is a change here, not a redesign.
 # [display]
+# enabled = true              # the status display runs, now and at every boot (Settings switches it; off stops it)
 # mode = "1024x600@60"        # set explicitly through KMS; the panel's EDID is never trusted for the resolution
 # diagonal_in = 7             # the screen's diagonal: the pixel density and so the minimum text size follow
 # view_distance_cm = 70       # raise it until the text reads from the seat (7b)

@@ -45,6 +45,8 @@ pub enum Cmd {
     /// Test hook: the meter thread stops draining the taps for this long (M6a: a stalled thread holds
     /// the gain).
     LoudnessStall { ms: u32 },
+    /// Test hook: the countdown to unloading a stopped program began this many seconds earlier (`station::unload`).
+    UnloadAge { seconds: i64 },
 }
 
 impl Cmd {

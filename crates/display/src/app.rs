@@ -3,20 +3,21 @@
 //! box and against a recording double in the tests.
 //!
 //! Everything the display shows comes over the WebSockets of the stations (11.3) and the library service's
-//! `display` topic. It writes nothing but its own last view (`view.json` in its state directory), so a failure
-//! here can never touch the audio.
+//! `display` topic. It writes nothing but its own state directory (`view.json`, its last view; `meters.json`;
+//! `output.json`, its monitor for the Settings page), so a failure here can never touch the audio.
 
 use crate::canvas::Color;
 use crate::layout::Plan;
 use crate::model::StationModel;
 use crate::net::{self, Event, Job};
+use crate::night::NightCtl;
 use crate::output::Output;
 use crate::render::Renderer;
 use crate::scene::{BarInfo, SceneInput, Shown};
 use crate::view::{Presenter, ViewMode, ViewSettings};
 use common::config::{DisplayConfig, GlobalConfig, StationConfig};
 use common::meters::MeterSettings;
-use serde_json::Value;
+use serde_json::{json, Value};
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
@@ -45,6 +46,12 @@ pub struct Config {
     /// Minutes east of UTC; `None` asks the system (hourly).
     pub tz_min: Option<i64>,
     pub product: String,
+    /// Always this night look, `(kelvin, dim)`, whatever the hour (`hotclock display --night-kelvin`, to judge it on
+    /// the panel).
+    pub force_night: Option<(f64, f64)>,
+    /// Write the frame as the panel shows it (through the night table) to this PNG every 10 s
+    /// (`HOTCLOCK_DISPLAY_SNAPSHOT`).
+    pub snapshot: Option<PathBuf>,
 }
 
 /// Where the frames go; opened again after the monitor was lost.
@@ -122,6 +129,12 @@ pub struct Introspect {
     /// The preset of the meter ballistics in use.
     /// The ballistics preset of each station, in station order.
     pub ballistics: Vec<String>,
+    /// The night color in force (`Day (6500 K)`, `Night (3400 K)`...) and whether its table is the identity.
+    pub night: String,
+    pub night_identity: bool,
+    /// The last frame as the panel shows it (the canvas through the night table), when the test asks for it.
+    pub want_pixels: bool,
+    pub pixels: Vec<u8>,
     /// Per frame: `(frame, shown station, its title on air, the first row of its queue)`; the display's own record of
     /// what it drew, for the tests (capped).
     pub title_log: Vec<(u64, String, String, String)>,
@@ -154,6 +167,11 @@ pub struct App {
     snapshot: Option<(PathBuf, Instant)>,
     bar: BarInfo,
     loudness_req: Vec<Instant>,
+    /// The last `output.json` written (without its time), so it is written only when the monitor changes.
+    reported: Option<Value>,
+    night: NightCtl,
+    /// The night table changed: the whole screen goes out again at the next present.
+    repaint_all: bool,
 }
 
 /// Counts a station's events per second, to say so in the log when one type comes in a burst: a station that sends a
@@ -281,6 +299,17 @@ impl App {
         }
         let cfg_len = cfg.stations.len();
         let last_saved = Some(vs.clone());
+        let snapshot = cfg
+            .snapshot
+            .clone()
+            .map(|p| (p, Instant::now() - Duration::from_secs(60)));
+        let night = NightCtl::new(
+            &cfg.display,
+            cfg.force_night,
+            cfg.state_file
+                .as_ref()
+                .map(|p| p.with_file_name("night.json")),
+        );
         let bar = BarInfo::new(&cfg.product, &cfg.display);
         App {
             cfg,
@@ -311,8 +340,10 @@ impl App {
             },
             bar,
             loudness_req: vec![Instant::now(); cfg_len],
-            snapshot: std::env::var_os("HOTCLOCK_DISPLAY_SNAPSHOT")
-                .map(|p| (PathBuf::from(p), Instant::now() - Duration::from_secs(60))),
+            snapshot,
+            reported: None,
+            night,
+            repaint_all: false,
         }
     }
 
@@ -393,6 +424,8 @@ impl App {
                 Ok(m) => self.set_meter_settings(m),
                 Err(e) => tracing::warn!("display: ignoring meter settings: {e}"),
             },
+            Event::Night(v) => self.night.on_library(&v),
+            Event::NightPreview(v) => self.night.on_preview(&v, now_ms),
             Event::LibraryDown => self.library_up = false,
             Event::Bar(v) => self.bar.update(&v),
             Event::Loudness(i, v) => self.models[i].set_loudness(&v),
@@ -425,6 +458,33 @@ impl App {
             st.dynamics.params = m.effective(&st.id).clone();
         }
         self.meter_settings = m;
+    }
+
+    /// Write `output.json` beside the view: the monitor the display drives now (`connected`, `connector`, `mode`) or
+    /// why it has none (`error`). The library service shows it beside the switch on the Settings page. Written only
+    /// when it changes (an open that keeps failing does not write every 2 s); `pid` lets the reader tell a file left
+    /// by a stopped display from a live one.
+    fn report_output(&mut self, v: Value) {
+        if self.reported.as_ref() == Some(&v) {
+            return;
+        }
+        if let Some(p) = &self.cfg.state_file {
+            let mut out = v.clone();
+            out["v"] = json!(1);
+            out["pid"] = json!(std::process::id());
+            out["at_ms"] = json!(wall_ms());
+            let (file, tmp) = (
+                p.with_file_name("output.json"),
+                p.with_file_name("output.json.tmp"),
+            );
+            if std::fs::write(&tmp, out.to_string())
+                .and_then(|()| std::fs::rename(&tmp, &file))
+                .is_err()
+            {
+                tracing::debug!("display: cannot write {}", file.display());
+            }
+        }
+        self.reported = Some(v);
     }
 
     fn save_view(&mut self) {
@@ -517,10 +577,14 @@ impl App {
                     r.canvas.images.insert(&u, img);
                     self.loaded.insert(u);
                 }
+                self.report_output(json!({
+                    "connected": true, "connector": o.connector(), "mode": o.mode(), "alarm": o.alarm(),
+                }));
                 self.out = Some((o, r));
                 self.open_failures = 0;
             }
             Err(e) => {
+                self.report_output(json!({"connected": false, "error": e}));
                 // log the first failure and then once a minute; the stations play on regardless
                 if self.open_failures == 0 || self.open_failures.is_multiple_of(30) {
                     tracing::warn!("display: no output: {e} (retrying every 2 s)");
@@ -538,6 +602,9 @@ impl App {
             self.handle(ev, now_ms);
         }
         self.try_open();
+        if self.night.update(now_ms) {
+            self.repaint_all = true;
+        }
         for m in &mut self.models {
             let live = m.live_frame(now_ms).cloned();
             m.dynamics.update(live.as_ref(), now_ms);
@@ -588,13 +655,20 @@ impl App {
                     notices: &notices,
                     bar: &self.bar,
                 };
-                let damage = r.frame(&inp);
+                let mut damage = r.frame(&inp);
+                if self.repaint_all {
+                    // a new night table: every pixel goes out through it
+                    damage = vec![crate::layout::Rect::new(0, 0, r.plan.w, r.plan.h)];
+                }
                 self.stats.frames += 1;
                 if !damage.is_empty() {
                     self.stats.presents += 1;
-                    if let Err(e) = out.present(&r.canvas, &damage) {
-                        tracing::warn!("display: output failed: {e}; reopening");
-                        lost = true;
+                    match out.present(&r.canvas, &damage, &self.night.lut) {
+                        Ok(()) => self.repaint_all = false,
+                        Err(e) => {
+                            tracing::warn!("display: output failed: {e}; reopening");
+                            lost = true;
+                        }
                     }
                 }
                 if let Some(i) = &self.introspect {
@@ -647,6 +721,9 @@ impl App {
                                     .map(|t| (z.name.clone(), t.text.clone(), t.color))
                             })
                             .collect();
+                        if g.want_pixels {
+                            g.pixels = r.canvas.rgba_out(&self.night.lut);
+                        }
                         g.header_bg = r.report.header_red.clone();
                         g.indicators = r.report.indicators.clone();
                         g.bars = r
@@ -662,7 +739,8 @@ impl App {
         if let (Some((path, last)), Some((_, r))) = (self.snapshot.as_mut(), self.out.as_ref()) {
             if last.elapsed() > Duration::from_secs(10) {
                 *last = Instant::now();
-                if let Err(e) = r.canvas.save_png(path) {
+                // what the panel shows: through the night table, like the KMS copy
+                if let Err(e) = r.canvas.save_png_with(path, &self.night.lut) {
                     tracing::debug!("display: snapshot: {e}");
                 }
             }
@@ -688,11 +766,12 @@ impl App {
                 .collect();
             tracing::info!("display: busiest second of events: {}", busiest.join("; "));
             tracing::info!(
-                "display: {} frames, {} presented in {secs:.0} s; cpu {:.1} % of one core; view {}",
+                "display: {} frames, {} presented in {secs:.0} s; cpu {:.1} % of one core; view {}; night color {}",
                 self.stats.frames,
                 self.stats.presents,
                 100.0 * (cpu - self.stats.cpu_s) / secs,
-                self.presenter.settings.view.name()
+                self.presenter.settings.view.name(),
+                self.night.text()
             );
             self.stats = Stats {
                 at: Instant::now(),
@@ -704,6 +783,9 @@ impl App {
         if lost {
             self.out = None;
             self.next_open = Instant::now() + Duration::from_secs(2);
+            self.report_output(
+                json!({"connected": false, "error": "the monitor was disconnected"}),
+            );
         }
         if let Some(i) = &self.introspect {
             if let Ok(mut g) = i.lock() {
@@ -720,6 +802,8 @@ impl App {
                     .collect();
                 g.library_up = self.library_up;
                 g.output_up = self.out.is_some();
+                g.night = self.night.text();
+                g.night_identity = self.night.lut.is_identity();
             }
         }
     }
@@ -746,16 +830,14 @@ pub fn run(
     g: &GlobalConfig,
     _global: &Path,
     force_view: Option<ViewMode>,
+    force_night: Option<(f64, f64)>,
     product: &str,
 ) -> ExitCode {
-    let stations = discover(g);
-    if stations.is_empty() {
-        eprintln!(
-            "hotclock display: no station configuration found in {}",
-            g.stations_dir.display()
-        );
-        return ExitCode::from(2);
-    }
+    static STOP: AtomicBool = AtomicBool::new(false);
+    let _ = ctrlc::set_handler(|| STOP.store(true, Ordering::Relaxed));
+    // On by default since the Settings switch, so a fresh box runs it before the first station exists (stations are
+    // made on the web page): wait for one, looking every 2 s and saying so once a minute, instead of exiting into a
+    // restart every 2 s.
     let state_file = std::env::var_os("STATE_DIRECTORY")
         .map(|d| {
             PathBuf::from(
@@ -768,6 +850,32 @@ pub fn run(
             .join("view.json")
         })
         .filter(|p| p.parent().is_some_and(Path::is_dir));
+    let mut stations = discover(g);
+    let mut waited = 0u32;
+    while stations.is_empty() {
+        if waited == 0 {
+            // for the Settings page: running, and why there is nothing on the screen yet
+            if let Some(p) = &state_file {
+                let v = json!({"v": 1, "pid": std::process::id(), "at_ms": wall_ms(), "connected": null,
+                    "waiting": format!("no station file in {}", g.stations_dir.display())});
+                let _ = std::fs::write(p.with_file_name("output.json"), v.to_string());
+            }
+        }
+        if waited.is_multiple_of(30) {
+            tracing::warn!(
+                "display: no station configuration in {}; looking again every 2 s",
+                g.stations_dir.display()
+            );
+        }
+        for _ in 0..20 {
+            if STOP.load(Ordering::Relaxed) {
+                return ExitCode::SUCCESS;
+            }
+            std::thread::sleep(Duration::from_millis(100));
+        }
+        waited += 1;
+        stations = discover(g);
+    }
     let cfg = Config {
         display: g.display.clone(),
         stations,
@@ -776,6 +884,8 @@ pub fn run(
         force_view,
         tz_min: None,
         product: product.into(),
+        force_night,
+        snapshot: std::env::var_os("HOTCLOCK_DISPLAY_SNAPSHOT").map(PathBuf::from),
     };
     tracing::info!(
         "display: stations {}; library {}; mode {}, {} inches, {} cm",
@@ -789,8 +899,6 @@ pub fn run(
         cfg.display.diagonal_in,
         cfg.display.view_distance_cm
     );
-    static STOP: AtomicBool = AtomicBool::new(false);
-    let _ = ctrlc::set_handler(|| STOP.store(true, Ordering::Relaxed));
     let mut app = App::start(cfg, Box::new(KmsFactory));
     app.run(&STOP);
     ExitCode::SUCCESS

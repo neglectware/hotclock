@@ -197,6 +197,12 @@ routes.onair = async () => {
   const pg = h('i', { id: 'pg' }), pmark = h('b', { hidden: true });
   const ledL = h('div', { class: 'led', 'aria-hidden': 'true' }, h('i', { class: 'lit' }), h('i', { class: 'pk' })), ledR = h('div', { class: 'led', 'aria-hidden': 'true' }, h('i', { class: 'lit' }), h('i', { class: 'pk' }));
   const nums = ['M', 'S', 'W', 'I'].map(k => h('span', {}, k + ' ', h('span', { class: 'lv' }, '--'.padStart(6)))), numNote = h('span', { class: 'unitlab' }, 'LUFS');
+  // the sample peak of each channel in dBFS, for lining up a mixer's input (its meter reads dBFS peak, not LUFS): beside
+  // each level bar, on the bar's own line, so the unit is no taller (a row under the figures made the page scroll at
+  // 1024 x 768)
+  const pkTitle = 'The sample peak of each channel, held for a second: what a mixer\'s peak meter shows';
+  const pkNums = ['L', 'R'].map(k => h('span', { class: 'pkv mono', 'data-pkrow': k, title: pkTitle }, k + ' ', h('span', { class: 'lv', 'data-pk': k }, '--'.padStart(6))));
+  const pkLab = h('span', { class: 'pklab', title: pkTitle }, 'dBFS', h('br'), 'peak');
   const comingBox = h('div', { class: 'nextbox' }), lufsEl = h('div', { class: 'lufs mono' }, ...nums, numNote);
   root.append(h('section', { class: 'unit', id: 'onairunit' },
     h('div', { class: 'uhead' }, uTitle, uPill, uOp, uOff, h('span', { class: 'r lampbar', role: 'group', 'aria-label': 'Station state lamps' }, lamps.playing, lamps.hold, lamps.assist, lamps.safe)),
@@ -204,7 +210,7 @@ routes.onair = async () => {
       h('div', { class: 'main' }, h('div', { class: 'ttl' }, tTitle, tArtist),
         h('div', { class: 'clockrow' },
           h('div', { class: 'clocks' }, h('div', { class: 'clock' }, cEl, h('div', { class: 'l' }, 'elapsed')), h('div', { class: 'clock left' }, cRm, h('div', { class: 'l' }, 'left')), h('div', { class: 'clock nxt' }, cSg, cSgL)),
-          h('div', { class: 'oa-pbar' }, pg, pmark), h('div', { class: 'leds' }, ledL, ledR), lufsEl)),
+          h('div', { class: 'oa-pbar' }, pg, pmark), h('div', { class: 'leds dbfspk' }, ledL, pkNums[0], pkLab, ledR, pkNums[1]), lufsEl)),
       comingBox)));
   const setLamp = (l, on) => setCls(l, 'on', on);
   const clocksEl = cEl.parentElement.parentElement;
@@ -366,7 +372,7 @@ routes.onair = async () => {
     const d = prog; closeMenuIfGone(d);
     if (!d) { progView.replaceChildren(h('div', { class: 'dim' }, 'The station does not report a program.')); return; }
     const pr = d.program;
-    const sig = [pr && [pr.run_id, pr.state, pr.cursor, pr.waiting?.block_id, pr.stack.map(x => x.playlist), pr.t0], (d.blocks || []).map(b => [b.block_id, b.status, b.at, b.fired_at, b.current]), d.next_block?.block_id, d.back_time?.state, d.back_time?.label, d.expected && [d.expected.at, d.expected.armed, d.expected.playlist_id, d.expected.fallback_grace_s], plist.length, st.state?.active_playlist?.id, layout.prog, rdOpen];
+    const sig = [pr && [pr.run_id, pr.state, pr.cursor, pr.waiting?.block_id, pr.stack.map(x => x.playlist), pr.t0, pr.show_time?.at, pr.show_time?.moved], (d.blocks || []).map(b => [b.block_id, b.status, b.at, b.fired_at, b.current]), d.next_block?.block_id, d.back_time?.state, d.back_time?.label, d.expected && [d.expected.at, d.expected.armed, d.expected.playlist_id, d.expected.fallback_grace_s], d.unload?.at, plist.length, st.state?.active_playlist?.id, layout.prog, rdOpen];
     paintMenu();
     if (!changed('prog', sig)) return;
     rowGuards.splice(0).forEach(g => g.cancel());
@@ -381,12 +387,29 @@ routes.onair = async () => {
       const here = blocks.filter(b => b.depth === pr.cursor.depth), curIdx = here.findIndex(b => b.current);
       const pillCls = 'pillstate ' + (pr.state === 'running' ? '' : pr.state === 'waiting' ? 'assist' : 'safe');
       kids.push(h('div', { class: 'pst progline' }, h('span', { class: 'pn progname' }, pr.playlist), h('span', { class: pillCls }, pr.state.toUpperCase())));
+      // the countdown to unloading the stopped program (Settings, This box: programs.unload_after_min) and its cancel
+      const ul = d.unload;
+      if (ul) kids.push(h('div', { class: 'notice unloadline', role: 'status' }, h('span', {}, 'Unloads in ', h('b', { class: 'btm mono unloadcount', 'data-due': Date.now() + ul.in_ms }, mmss(ul.in_ms))),
+        h('span', { class: 'dim', title: 'After ' + ul.after_min + ' min stopped the station runs End program and stop the audio by itself' }, `${ul.after_min} min after the stop`),
+        h('button', { type: 'button', class: 'f-keep', onclick: () => pact('program/keep-loaded', {}, 'Keep loaded') }, 'Keep loaded'), helpLink('onair', 'unload')));
       const how = T0_WORDS[pr.t0_source] || pr.t0_source;
       if (hasBlocks) {
         kids.push(h('div', { class: 'pfacts progcursor' }, 'Started ', h('b', {}, when(pr.t0)), ` ${how} · row `, h('b', {}, pr.cursor.position), curIdx >= 0 ? [', block ', h('b', {}, `${curIdx + 1} of ${here.length}`)] : null, pr.cursor.fill != null ? `, fill ${pr.cursor.fill}` : ''));
       } else {
         const pl = plist.find(p => p.id === pr.playlist_id);
         kids.push(h('div', { class: 'pfacts' }, pl ? `${cap(pl.mode)} playlist, ${pl.entries} ${pl.entries === 1 ? 'entry' : 'entries'}. ` : 'Playlist. ', 'Started ', h('b', {}, when(pr.t0)), ` ${how}.`));
+      }
+      // the show time (Start block) and moving it for this run only: every block timed from it moves along
+      const sh = pr.show_time;
+      if (sh) {
+        const mv = body => pact('program/show-time', body, 'Show time');
+        const tIn = h('input', { type: 'time', step: 1, class: 'f-showset', value: hhmm(sh.at), 'aria-label': 'New show time' });
+        kids.push(h('div', { class: 'row showline', style: 'margin-top:6px;gap:8px' }, h('span', {}, 'Show time ', h('b', { class: 'mono' }, hhmm(sh.at))),
+          h('span', { class: 'btm mono showcount', 'data-due': Date.now() + sh.in_ms }, mmss(sh.in_ms)),
+          sh.moved ? h('span', { class: 'chip warn', title: 'Moved for this run; the playlist says ' + hhmm(sh.playlist_at) }, 'moved') : null,
+          h('button', { type: 'button', class: 'f-show1', onclick: () => mv({ delay_s: 60 }) }, '+1 min'), h('button', { type: 'button', class: 'f-show5', onclick: () => mv({ delay_s: 300 }) }, '+5 min'),
+          tIn, h('button', { type: 'button', class: 'f-showmove', onclick: () => { if (tIn.value) mv({ local: tIn.value }); } }, 'Move'),
+          sh.moved ? h('button', { type: 'button', class: 'f-showreset', onclick: () => mv({ reset: true }) }, 'Put back') : null));
       }
       if (pr.stack.length > 1) kids.push(h('div', { class: 'crumbs dim pdim', style: 'margin-top:4px' }, pr.stack.map((s, i) => (i ? ' > ' : '') + s.playlist + ` (row ${s.position})`).join('')));
       const bt = d.back_time;
@@ -701,7 +724,7 @@ routes.onair = async () => {
   // a phone or a laptop that slept: the socket may be dead without telling; read the state when the page is shown again
   const vis = () => { if (document.visibilityState === 'visible') reload(); };
   document.addEventListener('visibilitychange', vis); onCleanup(() => document.removeEventListener('visibilitychange', vis));
-  let raf; const bars = new Ballistics.Bars(); Ballistics.follow(S.station);
+  let raf; const bars = new Ballistics.Bars(), pkHold = new Ballistics.PeakHold(); Ballistics.follow(S.station);
   loadPChain();
   const pct = db => db == null ? 0 : Math.max(0, Math.min(1, (db + 60) / 60));
   const setLed = (led, db, hold) => {
@@ -744,6 +767,7 @@ routes.onair = async () => {
     setLed(ledL, b.frame.ppmL, b.hold[0]); setLed(ledR, b.frame.ppmR, b.hold[1]);
     const fm = v => v == null ? '--' : v.toFixed(1);
     [f?.momentary, f?.shortTerm, f?.window, f?.integrated].forEach((v, i) => setText(nums[i].lastChild, fm(v).padStart(6)));
+    pkHold.update(live, now).forEach((v, i) => setText(pkNums[i].lastChild, fm(v).padStart(6)));
     // the processing display, about 15 times a second; the chain is read again when the frame says it changed
     if (live && pchainSeen != null && live.chainRev !== pchainSeen && now - pchainAt > 900) loadPChain();
     if (pdisp && now - pPaintAt > 66) { pPaintAt = now; pdisp.paint(pModel.update(live, now)); }
@@ -1453,6 +1477,7 @@ function blockForm(ctx, e, idx) {
 function parseWhenText(t) {
   t = String(t).trim(); let m;
   if ((m = t.match(/^T0\s*\+\s*(.+)$/i))) { const ms = parseOffset(m[1]); return ms == null ? null : { kind: 'relative', offset_ms: ms }; }
+  if ((m = t.match(/^show(?:\s*time)?\s*([+-])\s*(.+)$/i))) { const ms = parseOffset(m[2]); return ms == null ? null : { kind: 'show', offset_ms: m[1] === '-' ? -ms : ms }; }
   if ((m = t.match(/^(\d{1,2}):(\d{2})(?::\d{2})?\s*(next day|tomorrow)$/i))) return { kind: 'local', at: pad2(+m[1]) + ':' + m[2], day_offset: 1 };
   if (/^\d{4}-\d\d-\d\dT\d\d:\d\d(:\d\d)?$/.test(t)) return { kind: 'date', local: t };
   if (/^\S+ \S+ \S+ \S+ \S+$/.test(t) && /^[\d*/,-]+( [\d*/,A-Za-z-]+){4}$/.test(t)) return { kind: 'recurrence', cron: t };
@@ -1544,6 +1569,8 @@ const KIND_FORMS = {
     for (const s of pr.schedule || []) { if (s.cron) addWeek(s.cron); else if (s.date) addDate(s.date); }
     const anchor = selOf([['manual', 'Expected: the operator starts it by hand'], ['absolute', 'Starts itself at that time']], pr.anchor || 'manual', { class: 'f-anchor' });
     const armWin = num(pr.arm_window_min ?? 60, { min: 0, class: 'f-armwin' });
+    const showAt = txt(pr.show_time || '', { class: 'f-showtime', style: 'width:7em', placeholder: 'hh:mm:ss' });
+    const showNext = h('input', { type: 'checkbox', class: 'f-shownext', checked: (pr.show_day_offset || 0) > 0 });
     const fbOn = h('input', { type: 'checkbox', class: 'f-fallback', checked: !!pr.fallback_start?.enabled });
     const fbGrace = num(pr.fallback_start?.grace_s ?? 120, { min: 0, class: 'f-grace' });
     const how = selOf([['segue', 'At the next song change'], ['now', 'At once'], ['end', 'When the song on air ends']], pr.how || 'segue', { class: 'f-how' });
@@ -1556,7 +1583,7 @@ const KIND_FORMS = {
     anchor.addEventListener('change', sync); fbOn.addEventListener('change', sync); sync();
     const el = h('div', {}, line('When', h('div', {}, rows, h('div', { class: 'row' },
       h('button', { class: 'f-addweek', onclick: () => addWeek(null) }, 'Add a weekly time'), h('button', { onclick: () => addDate(null) }, 'Add a date'), h('button', { onclick: () => addCustom(null) }, 'Add a recurrence')))),
-      line('Starts', anchor), line('Arm window', armWin, h('span', { class: 'dim' }, 'minutes: a hand start this close to the time counts as this show')),
+      line('Starts', anchor), line('Show time', showAt, h('label', { class: 'dim' }, showNext, ' next day'), h('span', { class: 'dim' }, 'the moment the show builds to: blocks can be timed before or after it')), line('Arm window', armWin, h('span', { class: 'dim' }, 'minutes: a hand start this close to the time counts as this show')),
       line('Fallback', h('label', {}, fbOn, ' Start by itself if nobody has started it, after'), fbGrace, h('span', { class: 'dim grace-s' }, 's')),
       advanced, line('Skip these dates', skipBox, skipIn, h('button', { onclick: () => { if (skipIn.value) { skipBox.append(skipChip(skipIn.value)); skipIn.value = ''; } } }, 'Add')));
     const get = () => {
@@ -1564,6 +1591,8 @@ const KIND_FORMS = {
       if (!schedule.length) throw new Error('Add at least one time to the Start block');
       const params = { schedule, anchor: anchor.value, arm_window_min: need(armWin.value, 'The arm window'), fallback_start: fbOn.checked ? { enabled: true, grace_s: need(fbGrace.value, 'The grace time') } : { enabled: false } };
       const sk = [...skipBox.querySelectorAll('.skipchip')].map(c => c.dataset.date); if (sk.length) params.skip_dates = sk;
+      const sh = showAt.value.trim();
+      if (sh) { if (!/^\d{1,2}:\d{2}(:\d{2}(\.\d{1,3})?)?$/.test(sh)) throw new Error('The show time reads hh:mm or hh:mm:ss'); params.show_time = sh; if (showNext.checked) params.show_day_offset = 1; }
       if (anchor.value === 'absolute') { if (how.value !== 'segue') params.how = how.value; if (late.value !== '' && +late.value !== 300) params.window_late_s = +late.value; }
       return params;
     };
@@ -1747,8 +1776,10 @@ function parseOffset(t) {
 function fmtOffset(ms) { const s = Math.floor(ms / 1000); return `${pad2(Math.floor(s / 3600))}:${pad2(Math.floor(s / 60) % 60)}:${pad2(s % 60)}`; }
 /** The `when` field of a timed block: a time after T0, a local time, a recurrence or one date. */
 function whenField(w) {
-  const kind = h('select', { class: 'w-kind' }, [['recurrence', 'repeats'], ['relative', 'after T0'], ['local', 'at a time of day'], ['date', 'on one date']].map(([v, l]) => h('option', { value: v, selected: (w?.kind || 'recurrence') === v }, l)));
+  const kind = h('select', { class: 'w-kind' }, [['recurrence', 'repeats'], ['relative', 'after T0'], ['show', 'from the show time'], ['local', 'at a time of day'], ['date', 'on one date']].map(([v, l]) => h('option', { value: v, selected: (w?.kind || 'recurrence') === v }, l)));
   const val = h('input', { class: 'w-val', style: 'width:13em' });
+  // a show time is before or after it: the offset is typed as hh:mm:ss and the side picked here
+  const side = h('select', { class: 'w-side' }, [['-', 'before'], ['+', 'after']].map(([v, l]) => h('option', { value: v, selected: (w?.kind === 'show' && w.offset_ms > 0 ? '+' : '-') === v }, l)));
   const next = h('label', { class: 'dim' }, h('input', { type: 'checkbox', checked: (w?.day_offset || 0) > 0 }), ' next day');
   const hint = h('span', { class: 'dim' });
   const presets = h('span', {}, [['every hour', '0 * * * *'], ['every half hour', '*/30 * * * *']].map(([l, c]) => h('button', { onclick: () => { kind.value = 'recurrence'; val.value = c; sync(); } }, l)));
@@ -1756,20 +1787,21 @@ function whenField(w) {
     if (!w) val.value = '0 * * * *';
     else if (w.kind === 'recurrence') val.value = w.cron;
     else if (w.kind === 'relative') val.value = fmtOffset(w.offset_ms);
+    else if (w.kind === 'show') val.value = fmtOffset(Math.abs(w.offset_ms));
     else if (w.kind === 'local') val.value = w.at;
     else val.value = w.local;
   };
   set();
   const sync = () => {
     const k = kind.value;
-    hint.textContent = { recurrence: 'minute hour day month weekday, local time', relative: 'hh:mm:ss after the program starts (T0)', local: 'hh:mm in local time', date: 'YYYY-MM-DDThh:mm:ss, local time' }[k];
-    next.style.display = k === 'local' ? '' : 'none'; presets.style.display = k === 'recurrence' ? '' : 'none';
+    hint.textContent = { recurrence: 'minute hour day month weekday, local time', relative: 'hh:mm:ss after the program starts (T0)', show: 'hh:mm:ss, the show time is set on the Start block', local: 'hh:mm in local time', date: 'YYYY-MM-DDThh:mm:ss, local time' }[k];
+    next.style.display = k === 'local' ? '' : 'none'; presets.style.display = k === 'recurrence' ? '' : 'none'; side.style.display = k === 'show' ? '' : 'none';
   };
   // Typing "T0 + 14:40", "00:30 next day", a recurrence or a date picks the matching kind.
-  const apply = sm => { kind.value = sm.kind; if (sm.kind === 'relative') val.value = fmtOffset(sm.offset_ms); else if (sm.kind === 'local') { val.value = sm.at; next.firstChild.checked = (sm.day_offset || 0) > 0; } else if (sm.kind === 'date') val.value = sm.local; else val.value = sm.cron; sync(); };
+  const apply = sm => { kind.value = sm.kind; if (sm.kind === 'relative') val.value = fmtOffset(sm.offset_ms); else if (sm.kind === 'show') { val.value = fmtOffset(Math.abs(sm.offset_ms)); side.value = sm.offset_ms > 0 ? '+' : '-'; } else if (sm.kind === 'local') { val.value = sm.at; next.firstChild.checked = (sm.day_offset || 0) > 0; } else if (sm.kind === 'date') val.value = sm.local; else val.value = sm.cron; sync(); };
   val.addEventListener('input', () => { const sm = parseWhenText(val.value); if (sm && sm.kind !== kind.value) { kind.value = sm.kind; sync(); } if (sm?.kind === 'local') next.firstChild.checked = true; });
   val.addEventListener('change', () => { const sm = parseWhenText(val.value); if (sm) apply(sm); });
-  kind.addEventListener('change', () => { w = null; if (kind.value === 'relative') val.value = '00:14:40'; else if (kind.value === 'local') val.value = '00:30'; else if (kind.value === 'date') val.value = new Date(Date.now() + 36e5).toISOString().slice(0, 19); else val.value = '0 * * * *'; sync(); });
+  kind.addEventListener('change', () => { w = null; if (kind.value === 'relative') val.value = '00:14:40'; else if (kind.value === 'show') { val.value = '00:00:20'; side.value = '-'; } else if (kind.value === 'local') val.value = '00:30'; else if (kind.value === 'date') val.value = new Date(Date.now() + 36e5).toISOString().slice(0, 19); else val.value = '0 * * * *'; sync(); });
   sync();
   const get = () => {
     const k = kind.value, v = val.value.trim();
@@ -1777,14 +1809,15 @@ function whenField(w) {
     if (sm) { if (sm.kind === 'recurrence') sm.skip_dates = w?.skip_dates || []; return sm; }
     if (k === 'recurrence') return { kind: 'recurrence', cron: v, skip_dates: w?.skip_dates || [] };
     if (k === 'relative') { const ms = parseOffset(v); if (ms == null) throw new Error('the time after T0 reads hh:mm:ss'); return { kind: 'relative', offset_ms: ms }; }
+    if (k === 'show') { const ms = parseOffset(v); if (ms == null) throw new Error('the time from the show time reads hh:mm:ss'); return { kind: 'show', offset_ms: side.value === '-' ? -ms : ms }; }
     if (k === 'local') return { kind: 'local', at: v, day_offset: next.firstChild.checked ? 1 : 0 };
     return { kind: 'date', local: v };
   };
-  return { el: h('span', { class: 'row' }, kind, val, next, presets, hint), get };
+  return { el: h('span', { class: 'row' }, kind, val, side, next, presets, hint), get };
 }
 function describeWhen(w) {
   if (!w) return '';
-  return w.kind === 'recurrence' ? 'repeats ' + w.cron : w.kind === 'relative' ? 'T0 + ' + fmtOffset(w.offset_ms) : w.kind === 'local' ? w.at + ((w.day_offset || 0) > 0 ? ' next day' : '') : w.local;
+  return w.kind === 'recurrence' ? 'repeats ' + w.cron : w.kind === 'relative' ? 'T0 + ' + fmtOffset(w.offset_ms) : w.kind === 'show' ? fmtOffset(Math.abs(w.offset_ms)) + (w.offset_ms > 0 ? ' after' : ' before') + ' the show time' : w.kind === 'local' ? w.at + ((w.day_offset || 0) > 0 ? ' next day' : '') : w.local;
 }
 async function timedBlockForm(playlistId, entry, cats, lists) {
   const b = entry?.block, pr = b?.params || {};

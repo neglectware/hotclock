@@ -63,6 +63,10 @@ pub struct StationOptions {
     pub default_playlist: Option<String>,
     /// The mixer's limiter lookahead, frames (`Mixer::limiter_latency_frames`).
     pub lookahead_frames: u64,
+    /// How far ahead of the output a start from silence is placed, s: the frames already rendered are the output's
+    /// own (the rt thread renders just in time), so the next block can carry it. A little more than the master's 1 ms
+    /// restore ramp, which ends at the start.
+    pub silent_start_lead_s: f64,
     /// Keep the whole sidecar (tests); a station that runs for months compacts it.
     pub record_sidecar: bool,
     pub seed: u64,
@@ -88,6 +92,9 @@ pub struct StationOptions {
     pub loudness_gate: Vec<String>,
     /// IANA name of the zone timed blocks are written in (1.6).
     pub time_zone: String,
+    /// Minutes a stopped program stays loaded before the station unloads it (`programs.unload_after_min` of
+    /// the global file); `None` is never (`crate::unload`).
+    pub unload_after_min: Option<u32>,
 }
 
 impl StationOptions {
@@ -114,6 +121,7 @@ impl StationOptions {
             lock_ahead_s: 20,
             default_playlist: None,
             lookahead_frames: 96,
+            silent_start_lead_s: SILENT_START_LEAD_S,
             record_sidecar: false,
             seed: 0x5EED,
             decoder_threads: 3,
@@ -129,6 +137,7 @@ impl StationOptions {
             backup_dir: None,
             loudness_gate: vec!["liner".into(), "id".into(), "promo".into()],
             time_zone: "UTC".into(),
+            unload_after_min: Some(common::config::DEFAULT_UNLOAD_AFTER_MIN as u32),
         }
     }
 }
@@ -395,6 +404,11 @@ pub struct Station {
     /// A program start took the station (4.7 `program/start`): its first item starts on its own at the first
     /// frame after whatever was still sounding has faded out, never as a segue from it.
     pub(crate) program_start_at: Option<u64>,
+    /// The queue entry (id, item) whose head the conductor keeps decoded for the next start from silence.
+    standby_for: Option<(i64, i64)>,
+    /// End program and stop the audio cleared the program: once nothing sounds, the API sends every client a
+    /// fresh snapshot, so the displays drop the last item (they hold `now` until told otherwise).
+    pub announce_clear: bool,
 }
 
 /// See [`Station::armed_stop`].
@@ -443,6 +457,9 @@ impl Station {
         Ok(())
     }
 }
+
+/// A start from silence: see [`StationOptions::silent_start_lead_s`]. A start into what plays keeps [`lead_frames`].
+pub const SILENT_START_LEAD_S: f64 = 0.002;
 
 pub(crate) fn lead_frames(rate: u32) -> u64 {
     s_frames(MIN_LEAD_S + 0.05, rate).max(1) as u64
@@ -652,6 +669,8 @@ impl Station {
                 fail,
                 armed_stop: None,
                 program_start_at: None,
+                standby_for: None,
+                announce_clear: false,
                 wall_frac_ms: 0.0,
                 last_start: None,
                 side: crate::acts::default_side_sink(),
@@ -755,6 +774,8 @@ impl Station {
                 fail: crate::failure::FailState::new(1, crate::preflight::MediaFaults::new()),
                 armed_stop: None,
                 program_start_at: None,
+                standby_for: None,
+                announce_clear: false,
                 wall_frac_ms: 0.0,
                 last_start: None,
                 side: crate::acts::default_side_sink(),
@@ -796,7 +817,8 @@ impl Station {
     /// next boundary that is not committed), `truncated_fade` and `truncated_fade_s` (likewise), `target_lufs`,
     /// `max_boost_db` and `peak_allowance_db` (from the
     /// next item prepared; the item on air and the one already committed keep their gain), `silence_dbfs`,
-    /// `silence_s`, `lock_ahead_s` and `output_trim_db` (at once, the trim with its short ramp and kept in `meta`). Every value is checked first and nothing changes if one is
+    /// `silence_s`, `lock_ahead_s`, `unload_after_min` (a number of minutes or `"never"`; a countdown that runs keeps its start)
+    /// and `output_trim_db` (at once, the trim with its short ramp and kept in `meta`). Every value is checked first and nothing changes if one is
     /// wrong. Returns the keys applied.
     pub fn apply_live(
         &mut self,
@@ -841,6 +863,10 @@ impl Station {
                 }
                 "lock_ahead_s" => {
                     num(k, v, 5.0, 120.0)?;
+                }
+                "unload_after_min" => {
+                    common::config::UnloadAfter::from_json(v)
+                        .map_err(|e| format!("`unload_after_min` {e}"))?;
                 }
                 "output_trim_db" => {
                     num(
@@ -898,6 +924,11 @@ impl Station {
                 }
                 "output_trim_db" => {
                     self.set_output_trim(v.as_f64().unwrap_or(0.0));
+                }
+                "unload_after_min" => {
+                    self.opts.unload_after_min = common::config::UnloadAfter::from_json(v)
+                        .ok()
+                        .and_then(|u| u.minutes());
                 }
                 "lock_ahead_s" => {
                     let x = v.as_f64().unwrap_or(20.0) as u32;
@@ -1024,7 +1055,9 @@ impl Station {
         }
         self.start_ram_loader();
         let _ = self.cat.take_playable_changed();
-        if self.sched.st.program.is_none() {
+        // A program ended on purpose stays ended across a restart: the station picks a playlist only on a
+        // first start.
+        if self.sched.st.program.is_none() && !self.sched.st.program_closed {
             let pid = self
                 .default_playlist_id
                 .or_else(|| {
@@ -1190,7 +1223,8 @@ impl Station {
         let mut patch = parse_patch(&head.transition);
         let item = self.prepare_item(&mut head, item, &mut patch);
         let run = self.run_gain_for(&head);
-        let mut start = self.now_frame + lead_frames(self.rate());
+        // From silence: the next block written carries it (a sampler's start, 2026-10-12); it was 300 ms.
+        let mut start = self.now_frame + self.silent_lead_frames();
         if let Some(nb) = self.program_start_at.take() {
             start = start.max(nb);
         }
@@ -1224,6 +1258,8 @@ impl Station {
         }
         self.transport = Transport::Playing;
         self.finished_last = false;
+        // something new plays: its own `now` event replaces the cleared item on the displays
+        self.announce_clear = false;
         self.load_in_flight = true;
         self.dirty = true;
         Ok(())
@@ -1267,7 +1303,9 @@ impl Station {
         self.sched.stopped = self.transport != Transport::Playing;
         self.fallback_step(send);
         self.timed_step(send);
+        self.unload_step(send);
         self.boundary(send)?;
+        self.standby_step();
         if wall_ms.saturating_sub(self.last_checkpoint_wall) >= self.opts.checkpoint_every_ms {
             self.checkpoint();
         }
@@ -1562,6 +1600,15 @@ impl Station {
             self.run_gains.clear();
         }
         if let Some(p) = out.programming {
+            tracing::info!(
+                playlists = p.playlists.len(),
+                tied = p
+                    .playlists
+                    .values()
+                    .filter(|pl| pl.station_id.is_some())
+                    .count(),
+                "programming reloaded from the library"
+            );
             if let Some(w) = &self.state {
                 w.send(Msg::Programming {
                     key: "programming".into(),
@@ -1611,6 +1658,40 @@ impl Station {
                 .placed
                 .last()
                 .is_some_and(|p| !p.ended && p.start_frame <= self.undo_horizon())
+    }
+
+    /// While the next start will be from silence (stopped, held, in assist, nothing sounding), the head of the queue
+    /// is kept decoded (the conductor's standby), so a press sounds in the next block written. Redone only when the
+    /// head changes.
+    fn standby_step(&mut self) {
+        let from_silence = self.transport != Transport::Playing
+            || self.assist
+            || self.finished_last
+            || self.cond.live_voices() == 0;
+        if !from_silence {
+            if self.standby_for.take().is_some() {
+                self.cond.clear_standby();
+            }
+            return;
+        }
+        let Some(head) = self.sched.head().cloned() else {
+            return;
+        };
+        let key = (head.id, head.item_id);
+        if self.standby_for == Some(key) {
+            return;
+        }
+        self.standby_for = Some(key);
+        // an item whose markers make no sense starts as the whole file (`prepare_item`): it is opened then
+        if let Ok(item) = self.entry_item(&head) {
+            if crate::failure::markers_ok(&item) {
+                self.cond.prepare_standby(&item);
+            }
+        }
+    }
+
+    pub(crate) fn silent_lead_frames(&self) -> u64 {
+        s_frames(self.opts.silent_start_lead_s, self.rate()).max(1) as u64
     }
 
     fn undo_horizon(&self) -> u64 {
@@ -1803,7 +1884,12 @@ impl Station {
     /// finishes first. The program's first item starts on its own right after (4.7).
     fn take_station_for_program(&mut self, send: &mut dyn FnMut(Command)) {
         let earliest = self.now_frame + s_frames(MIN_LEAD_S, self.rate()).max(0) as u64;
-        let mut start_at = earliest;
+        // from silence the program's first item sounds in the next block written, as any start from silence
+        let mut start_at = if self.cond.live_voices() == 0 {
+            self.now_frame + self.silent_lead_frames()
+        } else {
+            earliest
+        };
         if let Some(a) = self.armed_stop.take() {
             // a stop (or the old program's fade out) is set up: it finishes, the program starts after it
             if a.at > self.now_frame {
@@ -2110,6 +2196,10 @@ impl Station {
                 _ => return Err(OpError::Busy),
             }
         }
+        // The operator is at work: a countdown to unloading a stopped program ends for this stop (a Stop starts one).
+        if !matches!(op, Op::Stop { .. }) {
+            self.unload_touched();
+        }
         let earliest = now_frame + s_frames(MIN_LEAD_S, self.rate()).max(0) as u64;
         let mut effect = OpEffect::default();
         match op {
@@ -2163,6 +2253,13 @@ impl Station {
                 self.transport = Transport::Playing;
                 self.finished_last = false;
                 self.assist_release();
+                // From silence (stopped, or held after the item ended): the head starts now, in this op, not at the
+                // next step 20 ms on (a start from silence is a sampler's, 2026-10-12).
+                if self.cond.live_voices() == 0 {
+                    if let Some(h) = self.peek_next() {
+                        self.try_start_head(h, send);
+                    }
+                }
             }
             Op::Assist(on) => {
                 self.assist = on;
@@ -2258,6 +2355,15 @@ impl Station {
                 self.reconcile_pending(send);
             }
             Op::Switch { playlist_id, how } => {
+                if let Some(why) = self
+                    .sched
+                    .prog
+                    .playlists
+                    .get(&playlist_id)
+                    .and_then(|p| p.refuse_switch())
+                {
+                    return Err(OpError::Refused(why));
+                }
                 effect = self.switch_program(playlist_id, how, None, send)?;
             }
             Op::EndAt {

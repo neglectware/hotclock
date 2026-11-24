@@ -597,6 +597,20 @@ fn the_loudness_numerals_match_the_frame_to_a_tenth_of_an_lu() {
 }
 
 #[test]
+fn the_dbfs_peak_readout_shows_each_channels_sample_peak_to_a_tenth_of_a_db() {
+    // a Demo tone matched to -18 LUFS: about -17.3 dBFS peak on both channels
+    let mut v = demo("both").unwrap();
+    v["stations"][0]["frame"]["peak"] = json!([-17.32, -17.28]);
+    let r = draw(&v, &opts(1920, 1080, 21.5, ViewMode::Single));
+    assert_eq!(r.report.dbfs_peak, ["-17.3", "-17.3"]);
+    let t: Vec<_> = r.canvas.log.glyphs.iter().map(|g| g.text.clone()).collect();
+    assert!(t.iter().any(|x| x == "PEAK L -17.3  R -17.3 dBFS"), "{t:?}");
+    // 1280 x 720 has room for it too
+    let r = draw(&v, &opts(1280, 720, 21.5, ViewMode::Single));
+    assert_eq!(r.report.dbfs_peak, ["-17.3", "-17.3"]);
+}
+
+#[test]
 fn a_gapless_run_shows_album_and_no_segue_countdown() {
     let v = demo("gapless").unwrap();
     for (w, h, d) in [(1024, 600, 7.0), (800, 480, 9.0), (1920, 1080, 21.5)] {

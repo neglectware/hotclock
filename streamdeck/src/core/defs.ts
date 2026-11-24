@@ -3,6 +3,7 @@ import type { Http, HttpResult } from "./http.js";
 import type { StationModel } from "./model.js";
 import type { GlobalSettings, KeySettings, Target } from "./settings.js";
 import type { Face } from "./svg.js";
+import type { ViewKind } from "./view.js";
 
 /** What every key controller shares. */
 export interface Env {
@@ -46,6 +47,8 @@ export interface ActionDef {
   id: string;
   /** What the key listens to. */
   uses: "station" | "library";
+  /** An info key (live text as its title) and whether it draws its picture; others are standard keys. */
+  view?: ViewKind;
   /** The face while the box does not answer, when it is not the plain grey OFFLINE key (Station Status goes red). */
   offlineFace?: (label: string) => Face;
   /**

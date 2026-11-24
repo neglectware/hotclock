@@ -72,6 +72,19 @@ const Ballistics = (() => {
       return { gr: this.gr, input: this.input.bar, inputHold: this.input.hold };
     }
   }
+  // The dBFS peak readout (a number, not a bar): the frame's sample peak of each channel, the highest of the last
+  // `holdMs` held so that it can be read (a mixer's peak meter reads the same thing). A steady tone reads steady to the
+  // 0.01 dB of the frame. The twin of `display::model::PeakHold`.
+  class PeakHold {
+    constructor(holdMs = 1000) { this.holdMs = holdMs; this.v = [null, null]; this.at = [0, 0]; }
+    update(f, now) {
+      [f?.peakL ?? null, f?.peakR ?? null].forEach((p, i) => {
+        if (p == null) { if (now - this.at[i] > this.holdMs) this.v[i] = null; return; }
+        if (this.v[i] == null || p >= this.v[i] || now - this.at[i] > this.holdMs) { this.v[i] = p; this.at[i] = now; }
+      });
+      return this.v;
+    }
+  }
   const listeners = [];
   function set(p) { params = { ...DEFAULT, ...p }; window.__ballistics = params; listeners.forEach(l => l(params)); }
   // The box's settings are a default and an override per station (`{default, stations: {name: ...}}`): a viewer uses the
@@ -91,6 +104,6 @@ const Ballistics = (() => {
     });
     J('/api/v1/display/meters' + (station ? '?station=' + encodeURIComponent(station) : '')).then(set).catch(() => { });
   }
-  return { Bars, Meter, GrMeter, Proc, set, follow, get params() { return params; }, onChange: f => listeners.push(f), DEFAULT };
+  return { Bars, Meter, GrMeter, Proc, PeakHold, set, follow, get params() { return params; }, onChange: f => listeners.push(f), DEFAULT };
 })();
 if (typeof module !== 'undefined') module.exports = Ballistics;

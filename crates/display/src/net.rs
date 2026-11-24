@@ -24,6 +24,11 @@ pub enum Event {
     Library(Value),
     /// The box's meter ballistics, from the library service.
     Meters(Value),
+    /// The night color: `{settings, place, error}` (the `night_*` keys of the global file and where the sun is
+    /// computed for), on connect and whenever the Settings page saves them.
+    Night(Value),
+    /// The Settings page's Preview button: `{until_ms, kelvin, dim_percent}`.
+    NightPreview(Value),
     /// `GET /api/v1/display/bar` of the library service (the top bar of `split`); `Null` when it did not answer.
     Bar(Value),
     /// A station's `GET /api/v1/loudness` (the controller's gain range).
@@ -282,6 +287,15 @@ pub fn library_thread(
                             if v["data"]["meters"].is_object() {
                                 let _ = t2.send(Event::Meters(v["data"]["meters"].clone()));
                             }
+                            if v["data"]["night"].is_object() {
+                                let _ = t2.send(Event::Night(v["data"]["night"].clone()));
+                            }
+                        }
+                        Some("display_night") => {
+                            let _ = t2.send(Event::Night(v["data"].clone()));
+                        }
+                        Some("display_night_preview") => {
+                            let _ = t2.send(Event::NightPreview(v["data"].clone()));
                         }
                         Some("display_meters") => {
                             let _ = t2.send(Event::Meters(v["data"].clone()));

@@ -53,6 +53,15 @@ export interface Face {
   glyph?: Glyph | null;
   /** The key is lit (active); when unset it is read from the background and the frame. */
   lit?: boolean;
+  /**
+   * Text the key must show even over the person's own title: a problem (`OFFLINE`, `NO STATION`, `SET UP`), an
+   * alert, the hint of a short press. Such a key shows state 0 unless `lit`.
+   */
+  say?: string;
+  /** An info key's live title, when it is not simply all its lines. */
+  title?: string;
+  /** This face is live text (as an info key's), whatever the action is: a Display View key that steps through the views. */
+  live?: boolean;
 }
 
 export type Glyph = "next" | "fade" | "pause" | "stop" | "cut" | "play" | "shuffle" | "cart" | "clock" | "block" | "loud" | "display" | "status" | "continue" | "skip" | "abort" | "note" | "list";
@@ -156,7 +165,7 @@ export function stack(sizes: number[], top = 8, bottom = 136, gap = 4): number[]
 export function offlineFace(station?: string): Face {
   const lines: TextLine[] = [{ text: "OFFLINE", size: 25, color: COLORS.dim, weight: 700, y: 78 }];
   if (station) lines.push({ text: station.slice(0, 14), size: 14, color: COLORS.faint, weight: 500, y: 104 });
-  return { bg: COLORS.bgOffline, lines, tag: "offline" };
+  return { bg: COLORS.bgOffline, lines, tag: "offline", lit: false, say: station ? `OFFLINE\n${station.slice(0, 14)}` : "OFFLINE" };
 }
 
 /** A station key whose station was never chosen: it sends nothing (it must never fall back to the first station). */
@@ -170,6 +179,8 @@ export function noStationFace(): Face {
       { text: "pick one", size: 14, color: COLORS.text, weight: 500, y: 106 },
     ],
     tag: "no-station",
+    lit: false,
+    say: "NO\nSTATION",
   };
 }
 
@@ -182,5 +193,7 @@ export function setupFace(): Face {
       { text: "box address", size: 14, color: COLORS.text, weight: 500, y: 94 },
     ],
     tag: "setup",
+    lit: false,
+    say: "SET UP\nbox address",
   };
 }

@@ -159,3 +159,54 @@ fn export_and_import_round_trip_and_the_file_is_checked() {
         );
     }
 }
+
+#[test]
+fn an_agc_preset_saved_with_a_fast_attack_of_0_reads_as_the_fast_clamp_off() {
+    let l = lib("agc-attack0");
+    let c = l.conn();
+    // rows saved by an older release: the clamp was off at 0 ms, and 1 ms was allowed
+    for (effect, name, params) in [
+        (
+            "agc",
+            "Old no clamp",
+            json!({"target_dbfs": -20.0, "fast_attack_ms": 0.0}),
+        ),
+        (
+            "agc",
+            "Old 1 ms",
+            json!({"target_dbfs": -20.0, "fast_attack_ms": 1.0}),
+        ),
+        (
+            "chain",
+            "Old chain",
+            json!({"agc": {"enabled": true, "fast_attack_ms": 0.0}}),
+        ),
+    ] {
+        c.execute(
+            "INSERT INTO processing_presets(effect, name, params, description, builtin, updated_at)
+             VALUES(?1, ?2, ?3, '', 0, '2026-01-01T00:00:00Z')",
+            rusqlite::params![effect, name, params.to_string()],
+        )
+        .unwrap();
+    }
+    let p = presets::get(c, "agc", "Old no clamp").unwrap().unwrap();
+    assert_eq!(p.params["fast_clamp"], json!(false));
+    assert_eq!(p.params["fast_attack_ms"], json!(10.0));
+    let p = presets::get(c, "agc", "Old 1 ms").unwrap().unwrap();
+    assert_eq!(p.params["fast_attack_ms"], json!(2.0));
+    assert!(p.params.get("fast_clamp").is_none(), "on, as before");
+    let p = presets::get(c, "chain", "Old chain").unwrap().unwrap();
+    assert_eq!(p.params["agc"]["fast_clamp"], json!(false));
+    // saved again, they pass the checks
+    presets::put(
+        c,
+        "agc",
+        "Old no clamp",
+        &presets::get(c, "agc", "Old no clamp")
+            .unwrap()
+            .unwrap()
+            .params,
+        "",
+    )
+    .unwrap();
+}

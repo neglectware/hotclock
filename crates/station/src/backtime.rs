@@ -135,12 +135,24 @@ impl Scheduler {
     ) -> Option<i64> {
         use crate::programming::{Entry, Until};
         match &pb.until {
-            Until::At(spec) => crate::program::spec_instant(spec, &self.cfg.zone, t0, since_ms),
+            Until::At(spec) => crate::program::spec_instant(
+                spec,
+                &self.cfg.zone,
+                t0,
+                self.show_ms(pl.id, t0),
+                since_ms,
+            ),
             Until::Duration(d) => Some(since_ms + d * 1000),
             _ => pl.entries.iter().skip(fi + 1).find_map(|e| match e {
                 Entry::Block(b) if b.enabled && b.is_timed_flow() => {
                     b.timed.as_ref().and_then(|t| {
-                        crate::program::spec_instant(&t.spec, &self.cfg.zone, t0, since_ms)
+                        crate::program::spec_instant(
+                            &t.spec,
+                            &self.cfg.zone,
+                            t0,
+                            self.show_ms(pl.id, t0),
+                            since_ms,
+                        )
                     })
                 }
                 _ => None,

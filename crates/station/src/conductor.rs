@@ -146,6 +146,21 @@ pub struct Conductor {
     pub ram: std::collections::HashMap<std::path::PathBuf, Arc<engine::pool::RamClip>>,
     /// Items whose transition layers had to be dropped, warned about once.
     resolve_warned: std::sync::Mutex<std::collections::HashSet<String>>,
+    /// The head of the item a start from silence would play next, decoded ahead (the 30 s head preload), so that
+    /// the start sounds in the next block written (a sampler's start, 2026-10-12).
+    standby: Option<Standby>,
+}
+
+/// Seconds of the standby decoded ahead: enough for the start (the voice goes on with the preload's decoder). Not the
+/// 30 s head preload: a preload is decoded in one go, and 30 s of it held a decoder worker for hundreds of ms while a
+/// start that needed it waited.
+const STANDBY_SECONDS: f64 = 3.0;
+
+/// A head preload kept ready for the next start from silence.
+struct Standby {
+    path: std::path::PathBuf,
+    from_ms: i64,
+    handle: Arc<engine::pool::PreloadHandle>,
 }
 
 fn curve_name(c: Curve) -> &'static str {
@@ -204,6 +219,7 @@ impl Conductor {
                 events: Vec::new(),
                 ram: std::collections::HashMap::new(),
                 resolve_warned: Default::default(),
+                standby: None,
             },
             mixer,
         )
@@ -366,6 +382,44 @@ impl Conductor {
         Ok((p, pa, pb))
     }
 
+    /// Keep the head of `item` decoded for the next start from silence: from the bound in that [`Conductor::place_first`]
+    /// will start it at. One standby at a time; the same item again keeps the one there is. An item in memory needs none.
+    pub fn prepare_standby(&mut self, item: &Arc<Item>) {
+        if self.ram.contains_key(&item.path) {
+            self.standby = None;
+            return;
+        }
+        let Ok(p) = self.resolve_chain(item, None) else {
+            return;
+        };
+        let (bin, _, _) = crate::plan::bounds_of(item, &p);
+        if self
+            .standby
+            .as_ref()
+            .is_some_and(|s| s.path == item.path && s.from_ms == bin)
+        {
+            return;
+        }
+        let handle = self
+            .pool
+            .preload(item.path.clone(), bin as f64 / 1000.0, STANDBY_SECONDS);
+        self.standby = Some(Standby {
+            path: item.path.clone(),
+            from_ms: bin,
+            handle,
+        });
+    }
+
+    /// No start from silence is near (the station plays on): the standby goes.
+    pub fn clear_standby(&mut self) {
+        self.standby = None;
+    }
+
+    /// Whether a finished standby is ready for `item` (for the tests and the log).
+    pub fn standby_ready(&self) -> bool {
+        self.standby.as_ref().is_some_and(|s| s.handle.is_ready())
+    }
+
     fn open_voice(
         &mut self,
         item: &Arc<Item>,
@@ -374,12 +428,20 @@ impl Conductor {
         gain_db: f64,
         declick_in: bool,
     ) -> Result<(VoiceId, Arc<FeedStatus>), String> {
-        let feed = match self.ram.get(&item.path) {
-            Some(clip) => self.pool.open(VoiceSource::Memory {
+        // the standby, if it is this item from this point and finished; any other goes (it is stale now)
+        let pre = self
+            .standby
+            .take()
+            .filter(|s| s.path == item.path && s.from_ms == from_ms)
+            .and_then(|s| s.handle.take())
+            .and_then(Result::ok);
+        let feed = match (self.ram.get(&item.path), pre) {
+            (Some(clip), _) => self.pool.open(VoiceSource::Memory {
                 clip: clip.clone(),
                 start_s: from_ms as f64 / 1000.0,
             }),
-            None => self.pool.open(VoiceSource::File {
+            (None, Some(p)) => self.pool.open(VoiceSource::Preload(p)),
+            (None, None) => self.pool.open(VoiceSource::File {
                 path: item.path.clone(),
                 start_s: from_ms as f64 / 1000.0,
             }),

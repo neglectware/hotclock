@@ -68,10 +68,11 @@ fn stopping(k: &BlockKind) -> bool {
 }
 
 /// The wall time of a timed block for `t0`, and a note when it is not exact.
-fn timed_at(b: &Block, zone: &Zone, t0: i64) -> Option<(i64, Option<String>)> {
+fn timed_at(b: &Block, zone: &Zone, t0: i64, show: Option<i64>) -> Option<(i64, Option<String>)> {
     let t = b.timed.as_ref()?;
     match &t.spec.when {
         When::Relative { offset_ms } => Some((t0 + offset_ms, None)),
+        When::Show { offset_ms } => show.map(|s| (s + offset_ms, None)),
         When::Local { .. } | When::Date { .. } => t
             .spec
             .occurrences(zone, Some(t0), i64::MIN / 4, i64::MAX / 4)
@@ -264,7 +265,9 @@ fn walk(
         };
         let (at, note, when) = match &b.timed {
             Some(t) => {
-                let (at, note) = timed_at(b, zone, t0).map_or((None, None), |(a, n)| (Some(a), n));
+                let show = pl.show_time().and_then(|s| s.instant(zone, t0));
+                let (at, note) =
+                    timed_at(b, zone, t0, show).map_or((None, None), |(a, n)| (Some(a), n));
                 (at, note, t.spec.describe())
             }
             None => (

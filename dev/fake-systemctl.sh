@@ -1,6 +1,8 @@
 #!/bin/sh
 # A stand-in for systemctl in tests and UI checks (HOTCLOCK_SYSTEMCTL): `start`, `stop`, `restart` and `is-active` of
-# hotclock-station@<name>.service run and stop a real `hotclock station <name>` process; other units are only logged.
+# hotclock-station@<name>.service run and stop a real `hotclock station <name>` process; hotclock-display.service is
+# a state file (`display.active`), with no process: `start` honours the unit's ExecCondition (it stays inactive when
+# `display.enabled` is off in $FAKE_SC_GLOBAL), as systemd does; other units are only logged.
 #   FAKE_SC_DIR      state directory (pid files, log `systemctl.log`)           required
 #   FAKE_SC_BIN      the hotclock binary                                        required
 #   FAKE_SC_GLOBAL   the global config passed as --global-config                required
@@ -11,6 +13,19 @@ mkdir -p "$d"
 echo "$*" >> "$d/systemctl.log"
 verb="$1"; unit="${2:-}"
 name=$(printf %s "$unit" | sed -n 's/^hotclock-station@\(.*\)\.service$/\1/p')
+if [ "$unit" = hotclock-display.service ]; then
+    case " ${FAKE_SC_FAIL:-} $(cat "$d/fail" 2>/dev/null) " in *" $verb:display "*) echo "Job for $unit failed (fake)" >&2; exit 1 ;; esac
+    case "$verb" in
+    start | restart)
+        rm -f "$d/display.active"
+        if "${FAKE_SC_BIN:?}" --global-config "${FAKE_SC_GLOBAL:?}" display --check-enabled >/dev/null 2>&1; then
+            : > "$d/display.active"
+        fi ;;
+    stop) rm -f "$d/display.active" ;;
+    is-active) if [ -e "$d/display.active" ]; then echo active; exit 0; else echo inactive; exit 3; fi ;;
+    esac
+    exit 0
+fi
 [ -n "$name" ] || { [ "$verb" = is-active ] && { echo inactive; exit 3; }; exit 0; }
 pidf="$d/$name.pid"
 FAKE_SC_FAIL="${FAKE_SC_FAIL:-} $(cat "$d/fail" 2>/dev/null)"

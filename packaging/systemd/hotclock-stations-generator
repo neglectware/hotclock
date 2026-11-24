@@ -1,13 +1,18 @@
 #!/bin/sh
-# A systemd generator: runs at boot and at every `systemctl daemon-reload`, and makes every station that has a file
-# in /etc/hotclock/stations start with the box (`hotclock-station@<name>` wanted by multi-user.target).
-# This replaces `systemctl enable hotclock-station@<name>` for stations made from the web page: polkit cannot limit
-# `enable` to one unit, so the service user does not get it, and a station exists exactly when its file does (the
-# unit also has ConditionPathExists= on that file). Stations enabled the old way keep working beside it.
+# A systemd generator: runs at boot and at every `systemctl daemon-reload`, and decides what of Hotclock starts with
+# the box (units wanted by multi-user.target), from the files the web page writes:
+#   - every station that has a file in /etc/hotclock/stations (`hotclock-station@<name>`);
+#   - the status display (`hotclock-display`), unless `enabled = false` in the [display] block of
+#     /etc/hotclock/hotclock.toml (Settings, Status display; the default is on).
+# This replaces `systemctl enable` for both: polkit cannot limit `enable` to one unit, so the service user does not get
+# it. A station exists exactly when its file does (the unit also has ConditionPathExists= on that file); the display
+# unit also has ExecCondition=, so an off switch keeps it stopped even when something else pulls it in (an `enable`
+# made by hand before this). Stations enabled the old way keep working beside it.
 # The directory comes from the first argument of the generator protocol; with none, nothing is done.
 dir="${1:-}"
 [ -n "$dir" ] || exit 0
 stations="${HOTCLOCK_STATIONS_DIR:-/etc/hotclock/stations}"
+global="${HOTCLOCK_GLOBAL_CONFIG:-/etc/hotclock/hotclock.toml}"
 mkdir -p "$dir/multi-user.target.wants"
 for f in "$stations"/*.toml; do
     [ -e "$f" ] || continue
@@ -15,4 +20,21 @@ for f in "$stations"/*.toml; do
     case "$n" in '' | .* | *[!a-z0-9_-]* | [-_]*) continue ;; esac
     ln -sf /lib/systemd/system/hotclock-station@.service "$dir/multi-user.target.wants/hotclock-station@$n.service"
 done
+# `enabled` of the [display] table (or `display.enabled` before any table). Only an explicit false turns it off: no
+# file, no key or a value this reader does not understand leaves the default, and the unit's ExecCondition, which
+# uses the service's own parser, has the last word.
+display_off() {
+    [ -r "$global" ] || return 1
+    awk '
+        { sub(/^[ \t]+/, ""); sub(/[ \t]*#.*$/, "") }
+        /^\[/ { t = $0; gsub(/[][ \t]/, "", t); next }
+        (t == "" && /^display[ \t]*\.[ \t]*enabled[ \t]*=/) || (t == "display" && /^enabled[ \t]*=/) {
+            v = $0; sub(/^[^=]*=[ \t]*/, "", v); sub(/[ \t]+$/, "", v); r = v
+        }
+        END { exit r == "false" ? 0 : 1 }
+    ' "$global"
+}
+if ! display_off; then
+    ln -sf /lib/systemd/system/hotclock-display.service "$dir/multi-user.target.wants/hotclock-display.service"
+fi
 exit 0

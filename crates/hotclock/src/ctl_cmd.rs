@@ -70,6 +70,10 @@ pub fn run(a: CtlArgs, global_path: &Path) -> ExitCode {
             Ok(ms) => Cmd::LoudnessStall { ms },
             Err(_) => return usage(),
         },
+        ["hook", "unload-age", s] => match s.parse() {
+            Ok(seconds) => Cmd::UnloadAge { seconds },
+            Err(_) => return usage(),
+        },
         ["hook", "clear-alert", code] => Cmd::ClearAlert {
             code: (*code).into(),
         },

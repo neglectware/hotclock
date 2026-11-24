@@ -11,6 +11,8 @@ For Ubuntu Server 24.04 (amd64). The package is `hotclock_<version>_amd64.deb`, 
 | `/usr/bin/hotclock-restore` | stops the units, restores the newest snapshots, starts them again |
 | `/lib/systemd/system/hotclock-library.service` | the library service (port 8300) |
 | `/lib/systemd/system/hotclock-station@.service` | one station per instance: `hotclock-station@office` |
+| `/lib/systemd/system/hotclock-display.service` | the status display on the box's monitor (on by default; Settings switches it) |
+| `/usr/lib/systemd/system-generators/hotclock-stations-generator` | starts the stations (one per file in `/etc/hotclock/stations`) and the status display (unless `display.enabled = false`) at boot |
 | `/lib/udev/rules.d/60-hotclock-usb-audio.rules` | keeps USB audio interfaces out of autosuspend |
 | `/usr/lib/sysusers.d/hotclock.conf`, `/usr/lib/tmpfiles.d/hotclock.conf` | the `hotclock` user (in group `audio`) and the directories under `/var/lib/hotclock` |
 | `/etc/systemd/journald.conf.d/hotclock.conf` | `SystemMaxUse=1G` |
@@ -18,7 +20,8 @@ For Ubuntu Server 24.04 (amd64). The package is `hotclock_<version>_amd64.deb`, 
 | `/usr/share/hotclock/examples/` | `office.toml`, `eve.toml`: station configuration to copy |
 | `/usr/share/hotclock/install.sh`, `upgrade.sh` | the install and upgrade scripts (also in the checkout under `packaging/`) |
 
-Nothing starts by itself when the package is installed or upgraded. An operator decides when.
+Nothing starts by itself when the package is installed or upgraded. An operator decides when. At the next boot the
+generator starts what the files say: every station with a file, and the status display unless it is switched off.
 
 ## Clean install
 
@@ -31,7 +34,11 @@ On the box, with the package in the current directory (the box needs the network
 
 `install.sh` runs `apt install ./package.deb`, writes `/etc/hotclock/stations/<name>.toml` from the example
 (device and port from the argument; an existing file is left alone), enables and starts the library and each
-station, and prints how long each station's `/health` took to answer. By hand the same is:
+station, and prints how long each station's `/health` took to answer. A station needs a playlist to put on air: on
+a box whose library has none yet (a fresh install), `install.sh` writes no file for it and does not start it (a
+station with nothing to play exits, restarts and ends in safe mode, and its file alone starts it at boot), and says
+so. Import the music, make the playlist its `default_playlist` names, then run `install.sh` again with the same
+`--station`. By hand the same is:
 
     sudo apt install ./hotclock_0.1.0-1_amd64.deb
     sudo cp /usr/share/hotclock/examples/office.toml /etc/hotclock/stations/office.toml   # edit device, port
@@ -43,8 +50,8 @@ Find the card ids with `cat /proc/asound/cards` and `aplay -L | grep CARD=`. The
 the C-Media USB dongle `Device`. No PulseAudio, PipeWire or JACK may hold the card. Then open
 `http://<box>:8300/` (the library, the admin) and import the music: drop files on the Import card, or copy them
 into `/var/lib/hotclock/inbox/`, or `sudo -u hotclock hotclock import DIR`. A station plays the playlist named
-by `default_playlist`; until it exists the station plays its emergency playlist or the RAM loop, and says so on
-`/health`.
+by `default_playlist`; until it exists the station plays another playlist of the library, and says so on `/health`.
+A station whose library has no playlist at all does not start ("there is no playlist to run"): make one first.
 
 The ports: library 8300, each station keeps its own wherever it runs (office 8301, Eve 8302). Nothing else is
 opened. The API is for the LAN and the tailnet (architecture 13): the box does not need to be reachable from
@@ -97,7 +104,8 @@ It stops the running units, moves the live database files aside (`*.replaced-<st
 raises each station's `library_outbox` counter to where the library remembers it (so the station's next
 quarantine decision is not mistaken for one already applied), and starts the units again. The stations resume
 with their playlists, queue position and quarantine list as of the snapshot, then find the library changed and
-carry on.
+carry on. Everything the restore writes or creates under `/var/lib/hotclock` (the databases, their `-wal` and
+`-shm`, each station's `state.db.lock`, a station directory) is left owned like the rest of the tree, by `hotclock`.
 
 ## Upgrading
 
@@ -113,13 +121,54 @@ script stops at the first station that does not come back healthy, and leaves th
 
 `hotclock display` draws the stations' status on the box's own monitor (architecture 11): a KMS/DRM dumb-buffer
 renderer on the text console of tty1, with no X, Wayland, desktop or browser on the box. It is a client of the
-stations' WebSockets and the library service's `display` topic, writes only its own last view
-(`/var/lib/hotclock-display/view.json`) and cannot touch the audio.
+stations' WebSockets and the library service's `display` topic, writes only its own state directory
+(`/var/lib/hotclock-display`: `view.json`, its last view; `meters.json`; `output.json`, the monitor it drives) and
+cannot touch the audio.
 
 ```
-sudo systemctl enable --now hotclock-display        # a box with a screen; the package does not enable it
 journalctl -u hotclock-display -f                    # what it found: the connector, the panel's modes, the mode set
 ```
+
+### On or off: `display.enabled` (Settings, Status display)
+
+The display is on by default and is switched in the web UI: **Settings**, This box, **Status display on this box's
+monitor** (`display.enabled` in the `[display]` block of `/etc/hotclock/hotclock.toml`). No shell and no
+`systemctl enable` are needed. Three things read the key:
+
+| What | When | Effect |
+|---|---|---|
+| The library service | on Save of the Settings page | writes the file, then `systemctl start` or `stop hotclock-display.service` (polkit allows exactly these two verbs, and `restart`, on exactly this unit) |
+| `hotclock-stations-generator` | at boot and at each `daemon-reload` | wants `hotclock-display.service` from `multi-user.target` while the key is not `false`, the way it wants the stations |
+| The unit's `ExecCondition=hotclock display --check-enabled` | at every start of the unit | exits 1 while the key is `false`: systemd skips the start (the unit stays inactive, not failed, and `Restart=` does not apply) |
+
+The condition is what makes "off" hold whatever pulls the unit in: an `enable` made by hand, a restart from the
+Settings page, a boot. It uses the service's own config parser; the generator uses a small `awk` reader of the same
+key, so for an unusual spelling the condition has the last word. The unit is a single unit, not a template, so there
+is never a second display, whichever way it was started.
+
+**Boxes where an operator ran `systemctl enable hotclock-display` by hand.** The package's postinst runs
+`systemctl disable hotclock-display` when it finds the unit enabled (it does not stop it), and the generator owns it
+from then on. Until that upgrade, or if someone enables it by hand again later, the two coexist: with the switch on
+the unit is wanted twice and runs once; with the switch off the condition skips it at boot. The one side effect of a
+hand-made `enable` with the switch off: the unit's `Conflicts=getty@tty1.service` can still stop the login prompt on tty1
+at boot before the condition skips the start. Run `systemctl disable hotclock-display` to give tty1 back.
+
+**Install and upgrade.** A fresh install leaves the key unset, so the display is on: `install.sh` starts it after the
+library, and it starts at every boot. It is harmless without a monitor (it retries every 2 s and logs once a minute)
+and without a station (it looks for a station file every 2 s). The first upgrade to a package with the switch keeps
+the box as it was, once (marker `/var/lib/hotclock/.display-switch`): when the unit was not enabled by hand and the
+file does not set the key, postinst writes `enabled = false` into the `[display]` block (or adds the block), checks it
+with `hotclock display --check-enabled` and keeps the previous file as `hotclock.toml.pre-display-switch`. The file is
+a conffile, so a later package that changes the shipped file asks about it, as it does for any edit made on the
+Settings page. Later upgrades never touch the key.
+
+**What the Settings page shows beside the switch** (`GET /api/v1/display/status`): `running` or `stopped` from
+`systemctl is-active`, and, while it runs, what the display reported in `/var/lib/hotclock-display/output.json`: the
+connector and the mode in use (`HDMI-A-2, 1024x600@60`), `no monitor connected`, or `waiting for a station` (no
+station file yet). The display writes that file when
+the output comes up, when it is lost and when none can be opened (only when it changes). It is a file in the display's
+own state directory, not a message to the library service, so the display stays a pure client of the library (as
+`view.json` is); the library reads it only while the process named in it is alive.
 
 - **The screen** is the `[display]` block of `/etc/hotclock/hotclock.toml` (commented example in the shipped file):
   `mode` (default `1024x600@60`, set explicitly through KMS; the panel's EDID is never trusted for the resolution, and
@@ -147,6 +196,51 @@ journalctl -u hotclock-display -f                    # what it found: the connec
   not installed on the target box. The instructions are at the top of that file.
 - **Previewing without a screen:** `hotclock display --render-png out.png --size 1024x600 --view split --feed demo:both`
   draws one frame of a built-in or recorded feed (`--log out.json` writes every glyph run and rectangle drawn).
+
+### Night color: `display.night_*` (Settings, Status display: night color)
+
+The panel warms up after sunset and back after sunrise (f.lux / Night Shift style). Only the native display's frames
+change: the browser display (`/display`, `screen.html`), On Air, OBS and the stream are never touched.
+
+| Key | Default | |
+|---|---|---|
+| `night_mode` | `"sun"` | `sun`, `schedule` (`night_on` to `night_off`, local `HH:MM`, defaults `"20:00"`, `"07:00"`) or `off` |
+| `night_kelvin` | `3400` | the night white point, 1900 to 6500 K (6500 is the panel untouched) |
+| `night_dim_percent` | `0` | 0 to 50: less light at night (the panel's backlight is not reachable from the box) |
+| `night_transition_min` | `60` | warming ends at sunset (starts this long before); cooling starts at sunrise; 0 to 180 |
+| `night_location` | `"timezone"` | `timezone` (the zone's principal city from tzdata `zone1970.tab`/`zone.tab`), `internet` (opt-in), `manual` (`night_latitude`, `night_longitude`, degrees, north and east positive) |
+| `night_time_zone` | `"system"` | `system` (the machine's zone: `TZ`, else `/etc/localtime`) or an IANA name |
+
+All keys apply live: on Save the library service sends a `display_night` message on its `display` topic (the channel
+the display already follows for the view and the meters) and the panel follows within a second; no restart. The
+display keeps the last message in `/var/lib/hotclock-display/night.json` (for the internet location after a restart
+with the library down). An upgrade from a package without these keys leaves them unset, so the defaults above apply:
+night color is **on** from the first sunset after the upgrade, at 3400 K, at the time zone's city. The shipped
+`hotclock.toml` is unchanged (it is a conffile; a change would make dpkg ask about it on upgrade).
+
+- **How it is applied.** In the renderer, never in the GPU: no `GAMMA_LUT`, `DEGAMMA_LUT`, `CTM` or vendor ioctl, so
+  it behaves the same on any KMS device and in the headless snapshots. The canvas stays untinted (the damage tracking
+  compares against it); a 256-entry table per channel is applied to every pixel on its way out, in the copy into the
+  KMS dumb buffer and in the PNG of `HOTCLOCK_DISPLAY_SNAPSHOT` and `--render-png`. By day and when off the table is
+  the identity and the pass is skipped. A new table (at most one change every 5 s, during a transition) repaints the
+  whole screen once. Cost on a 1024 x 600 frame: see `docs/BUILDLOG.md`, "Night color".
+- **The look.** White points from the CIE 1931 2-degree Planckian locus (Planck's law and the CIE observer,
+  `tools/blackbody-table.py`), in linear sRGB relative to 6500 K, largest channel 1.0, applied in linear light
+  (`encode(decode(v) * w)`), transitions interpolated in mired.
+- **Sunrise and sunset** come from the NOAA solar position algorithm on the box, no network. Polar days and nights
+  stay day or night.
+- **The internet location** (`night_location = "internet"` only): the library service asks `https://ipapi.co/json/`
+  at most once a day (the attempt is recorded even when it fails; a connection or I/O error is retried once after 5 s,
+  a bad answer is not) and keeps the answer in
+  `/var/lib/hotclock/display-location.json`; until it answers, or when it fails, the time zone's city is used. No
+  other setting makes a network request. `HOTCLOCK_GEOIP_URL` replaces the address and `HOTCLOCK_GEOIP_RETRY_MS` the retry delay (the tests).
+- **API.** `GET /api/v1/display/night` (the state the Settings page shows: the look now, today's sunrise and sunset,
+  the next change, the place); `POST /api/v1/display/night/preview` `{"kelvin": 2700, "dim_percent": 20}` (both
+  optional) shows the night look on the panel for 15 s.
+- **Judging the look on the panel:** `hotclock display --night-kelvin 3400 [--night-dim 30]` (stop the unit first)
+  holds that look whatever the hour; with `--render-png` the PNG is the frame as the panel shows it, for example
+  `hotclock display --render-png night.png --feed demo:both --night-kelvin 3400`.
+
 ## Output level: `output_trim_db`
 
 Each station has one output gain, `output_trim_db`, in dB (-40 to +6, default 0). It sits at the very end of the
@@ -169,6 +263,37 @@ headroom; trim it down (try -3, then -6) and raise the next device's input inste
 - The silence detector and `/health` read the signal **before** the trim, so a strong trim down does not raise a
   false silence alert. The meters and the stream carry the trimmed signal (what the listener hears).
 
+## A stopped program unloads by itself: `programs.unload_after_min`
+
+A program that stops and stays loaded (the Eve example's "Stop after midnight", a `fade_stop`, or the operator's
+Stop) is unloaded by the station after **5 minutes** with nothing playing and no new start: the station runs End
+program and stop the audio itself, the same code as the "⋯" menu (`POST /api/v1/program/abort`
+`{"stop_audio": true}`). The queue empties, the Program unit says "No program is running", and both displays drop
+the last item (the station sends every WebSocket client a fresh `snapshot` once the audio has stopped; the manual
+End program does the same since this change). The block log (Schedule, Recent firings; `GET /api/v1/blocks/log`)
+gets one `end_program` row per End program, `how` = `operator` or `automatic`; the journal has a line for each.
+
+- **The setting** is in the global file, read by every station at start and changed live from Settings, This box,
+  Programs and playback (a save is sent to each running station at once; no restart):
+
+      [programs]
+      unload_after_min = 5        # minutes (1 to 1440; the page offers 1, 2, 5, 10, 15, 30, 60), or "never"
+
+  The key is absent from the shipped `hotclock.toml` (a conffile, left unchanged), so an upgraded box gets the
+  default, 5 minutes. `"never"` keeps today's behavior: a stopped program stays loaded until someone ends it.
+- **What counts as stopped:** the transport is `stopped`, a program is loaded, no voice sounds (a stop's fade has
+  ended) and the station is not in safe mode. `held` is not stopped. An `end` block ends the program itself and needs
+  no unload.
+- **What cancels it:** anything that plays again ends the count (Play, Next, a program start, a switch). Any other
+  operator action while it runs (a queue edit, Continue, Fire, Skip, or **Keep loaded** in the Program unit,
+  `POST /api/v1/program/keep-loaded`) cancels it for this stop. A new stop counts afresh.
+- **Restarts:** the time of the stop is kept in `state.db` with the scheduler's state, so a restart neither loses
+  nor restarts the count; a station that comes back after the time has run out unloads at its first step.
+- **The API:** `GET /api/v1/program/state` has `unload: {at, in_ms, after_min}` while the count runs (else `null`),
+  and the `program` WebSocket event carries the same.
+- **Test hook** (stations started with `HOTCLOCK_TEST_HOOKS=1` only): `hotclock ctl <station> hook unload-age <s>`
+  moves the start of a running count `s` seconds back.
+
 ## Which playlist a station comes back on
 
 A station always resumes what it was doing when it stopped, including after a crash or a restart (architecture
@@ -184,7 +309,8 @@ at the end, and the station's `state.db` is put back too (or removed, on a stati
 on its own `default_playlist`). The station is then started again, on the playlist it was on before the test.
 `RESTORE=0` skips this (the test toml and test state stay), `LEAVE_STOPPED=1` leaves the unit stopped. The
 script refuses to run while the station is on air. What stays behind: the six imported tones, the two
-"Acceptance" playlists in the library, and the snapshots in `/var/lib/hotclock/backup`.
+"Acceptance" playlists in the library, and the snapshots in `/var/lib/hotclock/backup`. A second run finds its two
+playlists and empties and refills them (`hotclock playlist clear`) instead of creating them again.
 
 ## Removing
 
@@ -201,6 +327,8 @@ Every station and global setting can be changed from the web UI: **Settings** in
 | next boundary or item | `transition_preset`, `target_lufs`, `max_boost_db`, `peak_allowance_db` |
 | station restart | `name` (read-only), `display_name`, `listen`, `device`, `rate`, `period_frames`, `periods`, `formats`, `rate_trim_ppm`, `default_playlist`, `emergency_playlist`, `ram_loop_seconds`, `processing_preset`, `library`, every `stream.*` key, every `chain.*` key (the Processing panel on the System page changes the chain live and writes these) |
 | library restart | `data_dir`, `stations_dir`, `run_dir`, `time_zone`, `library.listen`, `brand.display_name`, `allowed_hosts`, `secrets_file` |
+| display restart | the `display.*` keys of the status display's screen and views |
+| starts or stops at once | `display.enabled` (see "On or off" under Status display) |
 
 The **crossfade style** (the station's default transition preset) is also on the On Air page beside the playlist picker and on the System page. A change applies from the next boundary that is not yet committed; a committed segue keeps its plan. Categories get a preset dropdown on the Settings page (inherit or a preset); category patches have no editor yet. Only the five built-in presets can be a station default for now.
 
@@ -208,7 +336,7 @@ Saving validates with the real config parser before writing, writes the toml ato
 
 **Privileges this needs (approved by the owner):**
 - `/etc/hotclock` and `/etc/hotclock/stations` are `root:hotclock` 0775 and the station tomls `root:hotclock` 0664 (tmpfiles; `secrets.toml` is unchanged), and the library unit has `ReadWritePaths=/var/lib/hotclock /etc/hotclock`.
-- `/usr/share/polkit-1/rules.d/50-hotclock.rules` lets the user `hotclock` run **only** `restart` on `hotclock-library.service`, `hotclock-display.service` and `hotclock-station@<name>.service`, and (since 2026-10-07, for the Stations page below) `start` and `stop` on `hotclock-station@<name>.service`. Nothing else. The package recommends `polkitd`.
+- `/usr/share/polkit-1/rules.d/50-hotclock.rules` lets the user `hotclock` run **only** `restart` on `hotclock-library.service`, `hotclock-display.service` and `hotclock-station@<name>.service`, (since 2026-10-07, for the Stations page below) `start` and `stop` on `hotclock-station@<name>.service`, and (since 2026-10-13, for the display's switch) `start` and `stop` on `hotclock-display.service`. Nothing else. The package recommends `polkitd`. `node dev/polkit-rule-test.mjs` checks the whole allowlist; the two smoke tests check it against the real polkit.
 
 There is no login. The box is meant for a trusted LAN. The places an authorization layer would wrap are the library's `/api/v1/settings*` and `/api/v1/system/restart` (`crates/serve/src/settings_http.rs`) and the station's POST `/api/v1/transition-preset` and `/api/v1/live-settings` (`station_http.rs`). Every write and restart goes through `settings.rs` (`write_atomic`, `restart_unit`).
 
@@ -222,7 +350,7 @@ The **Stations** page (`#/stations`, Help: Stations) creates, renames and delete
 - **No `enable`/`disable`.** polkit cannot limit them to one unit: the action `org.freedesktop.systemd1.manage-unit-files` carries no unit name (checked on systemd 255 in the test container: a rule that wanted the unit never matched), so a grant would let the service enable any unit file on the box. Instead `/usr/lib/systemd/system-generators/hotclock-stations-generator` makes every file in `/etc/hotclock/stations/` start with the box (at boot and at each `daemon-reload`), and `hotclock-station@.service` has `ConditionPathExists=/etc/hotclock/stations/%i.toml`. A station exists exactly when its file does. Stations already enabled with `systemctl enable` keep working; a deleted one is skipped at boot.
 - tmpfiles: `/var/lib/hotclock/archive` (0750 `hotclock`) holds the data of stations deleted with "keep its data". The station data directories, the snapshots in `/var/lib/hotclock/backup` and `/etc/hotclock/stations` were already writable by the library service.
 
-`dev/stations-systemd-smoke.sh` runs all of this against real systemd 255 and polkit in a container: create, polkit allow and refuse, the generator across a restart, rename, delete both ways.
+`dev/stations-systemd-smoke.sh` runs all of this against real systemd 255 and polkit in a container: create, polkit allow and refuse, the generator across a restart, rename, delete both ways. `dev/display-systemd-smoke.sh` does the same for the display's switch: on after install, off through the API, off across a restart (also with a hand-made `enable`), the postinst's migration, polkit.
 
 The login, when it exists, wraps the one prefix `/api/v1/station-admin` (`LibraryApi::station_admin` in `crates/serve/src/stations_http.rs`), as it wraps `/api/v1/settings*`.
 

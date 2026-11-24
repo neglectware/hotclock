@@ -45,7 +45,7 @@
   // sample peaks are held 2 s.
   const D = { post: new Float32Array(64).fill(-90), pre: new Float32Array(64).fill(-90), capPost: new Float32Array(64).fill(-90), capPre: new Float32Array(64).fill(-90),
     capPostAt: new Float64Array(64), capPreAt: new Float64Array(64), hold: [null, null], holdAt: [0, 0], last: 0 };
-  const bars = new Ballistics.Bars(); Ballistics.follow(apiBase.includes('/stations/') ? apiBase.split('/').pop() : null);
+  const bars = new Ballistics.Bars(), pkHold = new Ballistics.PeakHold(); Ballistics.follow(apiBase.includes('/stations/') ? apiBase.split('/').pop() : null);
   const mcv = $('#mcv'), scv = $('#scv'), stcv = $('#stcv');
   // the loudness controller's gain range (the station's settings), the scale of its bar
   const LC = { min: null, max: null };
@@ -339,6 +339,9 @@
     cells.forEach(([t], i) => { setText(numsEl.children[i], t); });
     const ctl = f && f.lstate ? `${f.gain >= 0 ? '+' : ''}${f.gain.toFixed(1)} dB ${['OFF', 'CONVERGING', 'ON TARGET', 'FROZEN', 'AT LIMIT'][f.lstate] || ''}` : '';
     setText($('#tgt'), f ? (tg != null ? `TARGET ${tg.toFixed(0)}   ${ctl}` : 'CONTROLLER OFF') : '');
+    // the sample peak of each channel, held a second: what a mixer's input meter reads (lining up a mixer)
+    const pk = pkHold.update(f, now);
+    setText($('#pkdb'), f ? `PEAK L ${fmt(pk[0])}  R ${fmt(pk[1])} dBFS` : '');
     renderOther();
     requestAnimationFrame(tick);
   }

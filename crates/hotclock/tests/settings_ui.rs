@@ -92,9 +92,8 @@ fn the_settings_page_edits_the_file_with_comments_validates_first_and_restarts_t
     .unwrap();
     use std::os::unix::fs::PermissionsExt;
     std::fs::set_permissions(&fake, std::fs::Permissions::from_mode(0o755)).unwrap();
-    std::env::set_var("HOTCLOCK_SYSTEMCTL", &fake);
-    e.spawn_station(&[]);
-    e.spawn_library();
+    e.spawn_station(&[("HOTCLOCK_SYSTEMCTL", fake.to_str().unwrap())]);
+    e.spawn_library_with(&[("HOTCLOCK_SYSTEMCTL", fake.as_os_str())]);
     let lb = e.lb();
     let s = get(&lb, "/api/v1/settings");
     assert_eq!(s.status, 200, "{}", s.text());
@@ -236,8 +235,12 @@ fn the_settings_page_edits_the_file_with_comments_validates_first_and_restarts_t
     );
     assert_eq!(r.status, 200, "{}", r.text());
     assert_eq!(r.json()["healthy"], true);
-    assert_eq!(
-        std::fs::read_to_string(&log).unwrap().trim(),
-        "restart hotclock-station@office.service"
-    );
+    // what was done; `is-active` is the Settings page asking whether the status display runs, a read
+    let done: Vec<String> = std::fs::read_to_string(&log)
+        .unwrap()
+        .lines()
+        .filter(|l| !l.starts_with("is-active "))
+        .map(str::to_string)
+        .collect();
+    assert_eq!(done, ["restart hotclock-station@office.service"]);
 }

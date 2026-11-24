@@ -4,21 +4,82 @@
 
 mod support_api;
 use serde_json::{json, Value};
+use serve::http::client::Reply;
 use std::path::PathBuf;
 use support_api::*;
 
-fn setup(name: &str) -> (Env, PathBuf) {
+/// The fake systemctl's directory. Dropping it stops every station process the fake started (pass or panic): they
+/// run in their own session, outlive the library and would keep playing, at critical once the test's files are gone,
+/// and load the machine for every later run.
+///
+/// It also holds the station port range for the test. A new station gets the first free port from 8301 (as on the
+/// box, where one library hands them out one at a time); tests running in parallel each found 8301 free and all but
+/// one station then failed to bind it. The tests here take turns with the range.
+struct Sc(
+    PathBuf,
+    #[allow(dead_code)] std::sync::MutexGuard<'static, ()>,
+);
+
+static PORT_RANGE: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+impl std::ops::Deref for Sc {
+    type Target = std::path::Path;
+    fn deref(&self) -> &std::path::Path {
+        &self.0
+    }
+}
+
+impl Drop for Sc {
+    fn drop(&mut self) {
+        for f in std::fs::read_dir(&self.0).into_iter().flatten().flatten() {
+            if std::thread::panicking() && f.path().extension().is_some_and(|x| x == "log") {
+                let t = std::fs::read_to_string(f.path()).unwrap_or_default();
+                let tail: Vec<_> = t.lines().rev().take(15).collect();
+                eprintln!("--- {} (last lines)", f.path().display());
+                tail.iter().rev().for_each(|l| eprintln!("{l}"));
+            }
+            if f.path().extension().is_some_and(|x| x == "pid") {
+                if let Ok(pid) = std::fs::read_to_string(f.path()) {
+                    let _ = std::process::Command::new("kill")
+                        .args(["-9", pid.trim()])
+                        .status();
+                }
+            }
+        }
+    }
+}
+
+fn setup(name: &str) -> (Env, Sc) {
+    // a test that failed while holding it leaves nothing behind (its Sc stopped its stations)
+    let turn = PORT_RANGE.lock().unwrap_or_else(|p| p.into_inner());
     let mut e = Env::new(name, &Opts::default());
     let fake = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../dev/fake-systemctl.sh");
     let sc = e.dir.join("sc");
     std::fs::create_dir_all(&sc).unwrap();
-    std::env::set_var("HOTCLOCK_SYSTEMCTL", fake);
-    std::env::set_var("FAKE_SC_DIR", &sc);
-    std::env::set_var("FAKE_SC_BIN", env!("CARGO_BIN_EXE_hotclock"));
-    std::env::set_var("FAKE_SC_GLOBAL", &e.global);
-    std::env::set_var("HOTCLOCK_STATION_START_TIMEOUT_S", "8");
-    e.spawn_library();
-    (e, sc)
+    // for this test's library alone (and the fake systemctl and stations it starts): the tests run in parallel
+    let global = e.global.clone();
+    e.spawn_library_with(&[
+        ("HOTCLOCK_SYSTEMCTL", fake.as_os_str()),
+        ("FAKE_SC_DIR", sc.as_os_str()),
+        ("FAKE_SC_BIN", env!("CARGO_BIN_EXE_hotclock").as_ref()),
+        ("FAKE_SC_GLOBAL", global.as_os_str()),
+        ("HOTCLOCK_STATION_START_TIMEOUT_S", "8".as_ref()),
+    ]);
+    (e, Sc(sc, turn))
+}
+
+/// Station management waits for station processes: up to 5 s for one to stop, `HOTCLOCK_STATION_START_TIMEOUT_S` (8
+/// here) for the new one to answer and 30 s to bring the old one back after a failing rename. Under the load of the
+/// whole suite that is well over `support_api`'s 15 s, so these requests wait for the server's own answer. (They shadow
+/// the glob-imported `post` and `send`.)
+const ADMIN_LIMIT: std::time::Duration = std::time::Duration::from_secs(90);
+
+fn post(addr: &str, path: &str, body: &Value) -> Reply {
+    send_within(addr, "POST", path, body, ADMIN_LIMIT)
+}
+
+fn send(addr: &str, method: &str, path: &str, body: &Value) -> Reply {
+    send_within(addr, method, path, body, ADMIN_LIMIT)
 }
 
 fn station_json(e: &Env, id: &str) -> Value {

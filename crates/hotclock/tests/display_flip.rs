@@ -28,7 +28,7 @@ impl Output for MockOut {
     fn size(&self) -> (i32, i32) {
         (1024, 600)
     }
-    fn present(&mut self, _c: &Canvas, _d: &[Rect]) -> Result<(), String> {
+    fn present(&mut self, _c: &Canvas, _d: &[Rect], _l: &common::night::Lut) -> Result<(), String> {
         self.presents.fetch_add(1, Ordering::SeqCst);
         Ok(())
     }
@@ -127,6 +127,8 @@ fn launch(
         force_view: None,
         tz_min: Some(0),
         product: "Product".into(),
+        force_night: None,
+        snapshot: None,
     };
     let factory = MockFactory {
         presents: presents.clone(),
@@ -368,6 +370,8 @@ fn watch_a_real_box() {
         force_view: Some(display::view::ViewMode::Rotate),
         tz_min: Some(0),
         product: "Product".into(),
+        force_night: None,
+        snapshot: None,
     };
     let factory = MockFactory {
         presents: presents.clone(),
